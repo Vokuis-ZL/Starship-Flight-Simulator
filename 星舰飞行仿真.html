@@ -1,0 +1,3356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STARSHIP FLIGHT 14 — IFT-14 星舰全任务飞行仿真</title>
+<style>
+/* ============================================================
+   STARSHIP FLIGHT 14 — UI 样式 (dev/ui.css)
+   SpaceX 风格：黑底白字 / 1px 细边框 / 大字距 / 极简
+   ============================================================ */
+
+*{box-sizing:border-box}
+html,body{
+  margin:0;padding:0;width:100%;height:100%;
+  background:#000;overflow:hidden;color:#fff;
+  font-family:'Bahnschrift','D-DIN','Segoe UI',Arial,sans-serif;
+  -webkit-user-select:none;user-select:none;
+}
+#cv{position:fixed;inset:0;display:block}
+
+/* UI 根容器：不拦截画布事件，仅子元素可交互 */
+#ui-root{position:fixed;inset:0;z-index:20;pointer-events:none}
+#ui-root button,#ui-root input,#ui-root .chip,#ui-root #drawer,#ui-root #hotspot,
+#ui-root .overlay{pointer-events:auto}
+
+/* ---------- 通用 ---------- */
+button{font-family:inherit}
+.hidden{display:none!important}
+
+/* ============ 底部遥测栏 ============ */
+#hud{
+  position:absolute;left:0;right:0;bottom:0;
+  display:flex;align-items:flex-end;justify-content:center;gap:20px;
+  padding:0 26px 16px;
+  background:linear-gradient(to top,rgba(0,0,0,.55),transparent);
+}
+.hud-side{display:flex;gap:14px;align-items:flex-end}
+.hud-center{
+  flex:0 1 620px;min-width:280px;
+  display:flex;flex-direction:column;align-items:center;
+}
+.hud-arc{width:100%;max-width:540px;height:34px;display:block;opacity:.85}
+.clock-row{display:flex;align-items:baseline;gap:10px;margin-top:-4px}
+.t-sign{font-size:19px;letter-spacing:2px;color:rgba(255,255,255,.85)}
+.t-val{
+  font-size:37px;font-weight:600;letter-spacing:2px;line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+.flight-name{margin-top:5px;font-size:11px;letter-spacing:4px;color:rgba(255,255,255,.92)}
+.vehicle-sub{margin-top:2px;font-size:9px;letter-spacing:3px;color:rgba(255,255,255,.45)}
+.ticker{
+  margin-top:5px;min-height:17px;
+  font-size:12px;letter-spacing:1.5px;color:#ffb44d;opacity:0;
+}
+.ticker.anim{animation:tickfade 8s forwards}
+@keyframes tickfade{
+  0%{opacity:0;transform:translateY(5px)}
+  4%{opacity:1;transform:none}
+  78%{opacity:1}
+  100%{opacity:0}
+}
+
+/* 148px 圆形仪表（速度/高度/姿态/引擎共用外壳） */
+.gauge{width:148px;height:148px;flex:none;position:relative}
+.gauge text{font-family:'Bahnschrift','D-DIN','Segoe UI',Arial,sans-serif}
+.edot{fill:rgba(255,255,255,.16)}
+.edot.on{fill:#fff}
+
+/* ============ 顶部右侧 chips ============ */
+#chips{position:absolute;top:14px;right:18px;display:flex;gap:8px;align-items:center}
+.chip{
+  cursor:pointer;padding:5px 12px;border-radius:2px;
+  font-size:11px;letter-spacing:2px;color:#fff;
+  background:rgba(8,10,12,.6);border:1px solid rgba(255,255,255,.28);
+  transition:background .2s,border-color .2s,color .2s;
+}
+.chip:hover{background:rgba(255,255,255,.12)}
+.chip.manual,.chip.warn{border-color:#ffb44d;color:#ffb44d}
+.chip.active{background:#fff;color:#000;border-color:#fff}
+.chip-seg{display:flex}
+.chip-seg .chip{border-right-width:0}
+.chip-seg .chip:last-child{border-right-width:1px}
+
+/* ============ 隐藏式抽屉控制面板 ============ */
+#dock{
+  position:absolute;left:50%;bottom:0;transform:translateX(-50%);
+  width:min(1060px,96vw);pointer-events:none;
+}
+#hotspot{height:12px}
+#drawer{
+  background:rgba(8,10,12,.72);
+  border:1px solid rgba(255,255,255,.28);border-bottom:none;
+  border-radius:3px 3px 0 0;
+  backdrop-filter:blur(6px);
+  padding:14px 18px 16px;
+  display:grid;grid-template-columns:1.25fr 1.05fr 1fr .95fr;gap:18px;
+  transform:translateY(110%);opacity:0;
+  transition:transform .3s ease,opacity .25s ease;
+}
+#drawer.open{transform:none;opacity:1}
+.d-head{
+  font-size:10px;letter-spacing:3px;color:rgba(255,255,255,.55);
+  margin:0 0 8px;padding-bottom:5px;
+  border-bottom:1px solid rgba(255,255,255,.14);
+}
+.d-col{min-width:0}
+.d-col + .d-col + .d-col + .d-col{}
+
+/* 滑条行 */
+.srow{display:flex;align-items:center;gap:8px;margin:7px 0;font-size:11px;letter-spacing:1px}
+.srow label{width:78px;flex:none;color:rgba(255,255,255,.75)}
+.srow input[type=range]{flex:1;height:14px;accent-color:#fff;cursor:pointer;min-width:0}
+.srow input[type=range]:disabled{opacity:.32;cursor:default}
+.srow .sval{width:54px;flex:none;text-align:right;font-variant-numeric:tabular-nums}
+
+/* 控制按钮 */
+.d-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.d-btn{
+  padding:7px 4px;border-radius:2px;cursor:pointer;
+  font-size:11px;letter-spacing:1px;color:#fff;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.28);
+}
+.d-btn:hover:not(:disabled){background:rgba(255,255,255,.16)}
+.d-btn:disabled{opacity:.32;cursor:default}
+.d-btn.active{background:#fff;color:#000;border-color:#fff}
+
+/* 引导文本 */
+.g-phase{font-size:10px;letter-spacing:2px;color:#ffb44d;margin-bottom:5px;min-height:12px}
+.g-text{font-size:12.5px;line-height:1.55;color:rgba(255,255,255,.92);min-height:60px}
+
+/* 任务清单 */
+.ck-item{display:flex;gap:7px;align-items:center;padding:2.5px 0;font-size:11.5px;color:rgba(255,255,255,.38)}
+.ck-item.now{color:#fff}
+.ck-item.done{color:#7ddc9a}
+.ck-mark{width:14px;flex:none;text-align:center}
+
+/* 键位表 */
+.keys{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;font-size:10.5px;color:rgba(255,255,255,.68)}
+.keys b{color:#fff;font-weight:600;margin-right:4px}
+
+/* ============ 全屏 overlay（菜单/教学/结局） ============ */
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:6}
+
+/* 主菜单 */
+#menu{background:radial-gradient(ellipse at 50% 42%,#171b1f 0%,#000 72%)}
+.menu-box{display:flex;flex-direction:column;align-items:center;text-align:center;padding-bottom:4vh}
+.menu-arc{width:520px;max-width:80vw;height:64px}
+.menu-title{font-size:44px;font-weight:700;letter-spacing:10px;margin:6px 0 4px}
+.menu-sub{font-size:14px;letter-spacing:6px;color:rgba(255,255,255,.62);margin-bottom:34px}
+.opt-group{margin:9px 0;display:flex;align-items:center}
+.opt-label{width:150px;text-align:right;margin-right:16px;font-size:11px;letter-spacing:3px;color:rgba(255,255,255,.55)}
+.seg{
+  padding:8px 18px;border-radius:2px;cursor:pointer;
+  font-size:12.5px;letter-spacing:2px;color:#fff;
+  background:transparent;border:1px solid rgba(255,255,255,.28);
+}
+.seg:hover{border-color:#fff}
+.seg.active{background:#fff;color:#000;border-color:#fff}
+.btn-start{
+  margin-top:32px;padding:13px 66px;border:none;border-radius:2px;cursor:pointer;
+  font-size:16px;font-weight:600;letter-spacing:8px;background:#fff;color:#000;
+}
+.btn-start:hover{background:#d8dde2}
+.menu-hint{margin-top:24px;font-size:10.5px;letter-spacing:2px;color:rgba(255,255,255,.35)}
+
+/* 教学 */
+#tut{background:rgba(0,0,0,.72)}
+.tut-card{
+  width:min(560px,92vw);border-radius:3px;padding:22px 26px;
+  background:rgba(8,10,12,.94);border:1px solid rgba(255,255,255,.28);
+}
+.tut-head{display:flex;justify-content:space-between;margin-bottom:14px;font-size:12px;letter-spacing:3px;color:rgba(255,255,255,.6)}
+.tut-body h3{margin:0 0 10px;font-size:19px;letter-spacing:2px}
+.tut-body p{margin:0;font-size:13.5px;line-height:1.8;color:rgba(255,255,255,.85)}
+.tut-foot{display:flex;align-items:center;gap:10px;margin-top:20px}
+.tut-dots{flex:1;display:flex;gap:6px;justify-content:center}
+.tut-dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.25)}
+.tut-dots i.on{background:#fff}
+.btn-ghost{
+  padding:8px 16px;border-radius:2px;cursor:pointer;
+  font-size:12px;letter-spacing:2px;color:#fff;
+  background:transparent;border:1px solid rgba(255,255,255,.28);
+}
+.btn-ghost:hover{border-color:#fff}
+.btn-ghost:disabled{opacity:.3;cursor:default}
+.btn-primary{
+  padding:8px 20px;border-radius:2px;cursor:pointer;
+  font-size:12px;letter-spacing:2px;background:#fff;color:#000;border:1px solid #fff;
+}
+
+/* 结局弹窗 */
+#end{background:rgba(0,0,0,.55)}
+.end-card{
+  width:min(480px,92vw);border-radius:3px;padding:28px 30px;text-align:center;
+  background:rgba(8,10,12,.94);border:1px solid rgba(255,255,255,.28);
+}
+.end-title{font-size:30px;font-weight:700;letter-spacing:8px;margin-bottom:8px}
+.end-card.fail .end-title{color:#ff5a52}
+.end-card.success .end-title{color:#5ee38a}
+.end-card.partial .end-title{color:#ffb44d}
+.end-note{min-height:18px;margin-bottom:18px;font-size:12.5px;letter-spacing:1px;color:rgba(255,255,255,.7)}
+.end-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:22px}
+.stat{padding:9px 4px;border:1px solid rgba(255,255,255,.16);border-radius:2px}
+.stat b{display:block;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat span{font-size:9.5px;letter-spacing:1.5px;color:rgba(255,255,255,.5)}
+.end-btns{display:flex;gap:10px;justify-content:center}
+.end-btns button{padding:10px 26px;border-radius:2px;cursor:pointer;font-size:13px;letter-spacing:3px}
+#btnRestart{background:#fff;color:#000;border:1px solid #fff}
+#btnMenu{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.28)}
+#btnMenu:hover{border-color:#fff}
+
+/* ============ Toast ============ */
+#toasts{
+  position:absolute;top:18px;left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;gap:8px;align-items:center;z-index:8;
+  pointer-events:none;
+}
+.toast{
+  padding:8px 20px;border-radius:2px;pointer-events:none;
+  background:rgba(8,10,12,.85);border:1px solid rgba(255,255,255,.3);
+  font-size:13px;letter-spacing:1px;
+  opacity:0;transform:translateY(-6px);
+  transition:opacity .4s,transform .4s;
+}
+.toast.in{opacity:1;transform:none}
+.toast.out{opacity:0}
+
+/* ============ 状态可见性 ============ */
+.menu-open #hud,.menu-open #chips,.menu-open #dock,.menu-open #toasts{display:none}
+.end-open #chips,.end-open #dock{display:none}
+
+/* ============ IFT-14 任务简报 ============ */
+#briefing{background:rgba(0,0,0,.84);z-index:7}
+.brief-card{
+  width:min(1120px,96vw);max-height:94vh;overflow:auto;border-radius:3px;padding:24px 30px;
+  background:rgba(8,10,12,.97);border:1px solid rgba(255,255,255,.28);
+}
+.brief-head{display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;margin-bottom:14px}
+.brief-kicker{font-size:10px;letter-spacing:4px;color:rgba(255,255,255,.5)}
+.brief-title{font-size:26px;font-weight:700;letter-spacing:4px}
+.brief-date{font-size:10.5px;letter-spacing:1.5px;color:rgba(255,255,255,.55)}
+.brief-body{display:flex;gap:28px}
+.brief-left{flex:1.35;min-width:0}
+.brief-right{flex:1;min-width:300px}
+.brief-sec{font-size:10.5px;letter-spacing:3px;color:rgba(255,255,255,.55);margin-bottom:10px}
+.brief-svg{width:100%;height:auto;display:block}
+.brief-svg text{font-family:'Bahnschrift','D-DIN','Segoe UI',Arial,sans-serif}
+.brief-note{margin-top:8px;font-size:10.5px;color:rgba(255,255,255,.4);letter-spacing:1px;line-height:1.6}
+.prow{display:flex;align-items:center;gap:8px;margin:9px 0;font-size:11px;letter-spacing:1px}
+.prow label{width:96px;flex:none;color:rgba(255,255,255,.75);cursor:help}
+.prow input[type=range]{flex:1;min-width:0;height:14px;accent-color:#fff;cursor:pointer}
+.prow input[type=range]:disabled{opacity:.32;cursor:default}
+.pval{width:128px;flex:none;text-align:right;font-variant-numeric:tabular-nums;color:#fff;font-size:11px}
+.pseg{
+  padding:5px 10px;font-size:10.5px;letter-spacing:1px;color:#fff;
+  background:transparent;border:1px solid rgba(255,255,255,.28);cursor:pointer;border-radius:2px;
+}
+.pseg:hover{border-color:#fff}
+.pseg.active{background:#fff;color:#000;border-color:#fff}
+.pseg:disabled{opacity:.32;cursor:default}
+.brief-mode{margin-top:14px}
+.brief-mode .opt-label{width:auto;margin-right:10px}
+.brief-foot{display:flex;align-items:center;gap:18px;margin-top:20px}
+.brief-hint{flex:1;font-size:10.5px;color:rgba(255,255,255,.4);letter-spacing:1px}
+.brief-go{margin-top:0;padding:12px 46px}
+
+/* ============ 侧边时间线路线图 ============ */
+#rail{
+  position:absolute;right:14px;top:100px;bottom:190px;width:236px;z-index:5;
+  transition:width .25s ease;overflow:visible;
+}
+#rail:not(.open){width:26px}
+#rail:not(.open) .rail-lab,#rail:not(.open) .rail-tip{display:none}
+.rail-line{position:absolute;right:7px;top:0;bottom:0;width:1px;background:rgba(255,255,255,.3)}
+.rail-node{position:absolute;right:0;width:100%;height:1px}
+.rail-dot{
+  position:absolute;right:3.5px;top:-4.5px;width:9px;height:9px;border-radius:50%;
+  background:#000;border:1px solid rgba(255,255,255,.5);
+}
+.rail-node.done .rail-dot{background:#7ddc9a;border-color:#7ddc9a}
+.rail-node.cur .rail-dot{background:#fff;border-color:#fff;box-shadow:0 0 9px rgba(255,255,255,.9)}
+.rail-cursor{
+  position:absolute;right:0;width:16px;height:2px;background:#fff;
+  box-shadow:0 0 7px #fff;transform:translateY(-1px);
+}
+.rail-lab{
+  position:absolute;right:22px;top:-6px;font-size:9.5px;letter-spacing:.5px;
+  color:rgba(255,255,255,.42);white-space:nowrap;
+}
+.rail-node.done .rail-lab{color:rgba(125,220,154,.7)}
+.rail-node.cur .rail-lab{color:#fff;font-size:10.5px}
+.rail-tip{
+  position:absolute;right:22px;top:-16px;width:280px;display:none;
+  padding:9px 12px;background:rgba(8,10,12,.96);border:1px solid rgba(255,255,255,.3);
+  border-radius:2px;font-size:10.5px;line-height:1.55;color:rgba(255,255,255,.85);
+  z-index:9;pointer-events:none;
+}
+.rail-node.hover .rail-tip{display:block}
+#rail-toggle{position:absolute;right:18px;top:56px}
+.menu-open #rail,.menu-open #rail-toggle{display:none}
+
+/* 抽屉 5 栏加宽 + 紧凑参数行 */
+#drawer{width:min(1420px,97vw)}
+.pcompact{margin:6px 0;font-size:10px}
+.pcompact label{width:76px;font-size:9.5px}
+.pcompact .pval{width:86px;font-size:9.5px}
+
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+/* ============================================================
+ * MISSION14 — SpaceX Starship Flight 14 (IFT-14) 真实任务数据
+ * 时间轴来源：SpaceX 官方任务时间线（2026-09-28 首次入轨任务）
+ * 全局对象 MISSION14，普通脚本无依赖
+ * ============================================================ */
+var MISSION14 = (function () {
+  'use strict';
+
+  /* ---------- 真实任务时间线（T+ 秒） ---------- */
+  var TIMELINE = [
+    { t: -17,  id: 'COUNTDOWN',  name: '终倒计时',     desc: 'T-00:17 发射倒计时开始，T-00:03 33台猛禽3点火' },
+    { t: -3,   id: 'IGNITION',   name: '点火',         desc: '33 台猛禽 3 引擎点火，推力约 7600 吨力' },
+    { t: 0,    id: 'LIFTOFF',    name: '升空',         desc: 'T+00:00 星箭离开发射台，飞越美洲湾上空爬升' },
+    { t: 58,   id: 'MAXQ',       name: 'MAX-Q',        desc: 'T+00:58 最大动压——箭体承受气动压力峰值时刻' },
+    { t: 75,   id: 'SUPERSONIC', name: '超音速',       desc: 'T+01:15 速度突破 1 马赫，进入超音速飞行' },
+    { t: 140,  id: 'MECO',       name: 'MECO',         desc: 'T+02:20 主引擎关机（本次飞行一台猛禽途中故障关机，实际 32 台）' },
+    { t: 142,  id: 'HOTSTAGE',   name: '热级分离',     desc: 'T+02:22 热分离——星舰上级在助推器仍排气时点火推离' },
+    { t: 147,  id: 'BOOSTBACK',  name: '返推点火',     desc: 'T+02:27 助推器定向翻转，31 台引擎返推点火——刻意耗尽主箱液氧以测试性能极限' },
+    { t: 187,  id: 'BOOSTBACK_END', name: '返推关机',  desc: 'T+03:07 返推关机，助推器弹道滑行返回' },
+    { t: 395,  id: 'BLAND',      name: '助推器着陆点火', desc: 'T+06:35 着陆点火：11 台→5 台→3 台逐级减推力' },
+    { t: 421,  id: 'BSPLASH',    name: '助推器溅落',   desc: 'T+07:01 超重型溅落美洲湾；随后 FTS 飞行终止系统触发演示安全硬件' },
+    { t: 491,  id: 'SECO1',      name: 'SECO-1',       desc: 'T+08:11 上级引擎关机——一台真空猛禽提前关机，其余 5 台延长燃烧，进入被动安全亚轨道' },
+    { t: 1528, id: 'OIB',        name: '入轨点火',     desc: 'T+25:28 重新点燃 1 台海平面猛禽，执行历史首次星舰入轨点火' },
+    { t: 1547, id: 'ORBIT',      name: '进入轨道',     desc: 'T+25:47 入轨成功——星舰首次环绕地球，轨道高度约 275km' },
+    { t: 2058, id: 'DEPLOY',     name: '星链部署',     desc: 'T+34:18 开始部署 26 颗星链 V3 卫星（1Tbps/颗）' },
+    { t: 3890, id: 'DEPLOY_END', name: '部署完成',     desc: 'T+01:04:50 全部 26 颗卫星部署完毕并建立激光链路' },
+    { t: 31938, id: 'DEORBIT',   name: '离轨点火',     desc: 'T+08:52:18 绕地约 6 圈后，点燃 1 台猛禽执行史上首次星舰离轨点火' },
+    { t: 31949, id: 'DEORBIT_END', name: '离轨完成',   desc: 'T+08:52:29 离轨点火结束，飞船脱离轨道飞向北太平洋溅落区' },
+    { t: 34132, id: 'ENTRY',     name: '再入大气层',   desc: 'T+09:28:52 再入界面——以约 7.4km/s 进入大气层，腹部隔热瓦朝向气流' },
+    { t: 35250, id: 'TRANSONIC', name: '跨音速',       desc: 'T+09:47:30 速度降至 1 马赫附近，进入跨音速区' },
+    { t: 35287, id: 'SUBSONIC',  name: '亚音速',       desc: 'T+09:48:07 完全亚音速，襟翼控制姿态准备翻转' },
+    { t: 35411, id: 'SLAND',     name: '着陆点火',     desc: 'T+09:50:11 重新点燃全部 3 台海平面猛禽' },
+    { t: 35413, id: 'FLIP',      name: '着陆翻转',     desc: 'T+09:50:13 着陆翻转机动——由腹部朝下转为尾向下降' },
+    { t: 35430, id: 'SPLASH',    name: '太平洋溅落',   desc: 'T+09:50:30 太平洋精准溅落——首次轨道任务圆满成功' }
+  ];
+
+  /* ---------- 智能压缩播放剖面 ----------
+     每段：{ until: 任务时钟秒, rate: 压缩倍率（每真实秒播放多少任务秒） }
+     全程约 10.5 分钟播完 9h50m 真实任务 */
+  var PROFILE = [
+    { until: 0,     rate: 1 },     // 倒计时 实时 17s
+    { until: 140,   rate: 2.5 },   // 上升 56s
+    { until: 421,   rate: 4 },     // 分离/返推/助推器溅落 70s
+    { until: 491,   rate: 6 },     // 上级上升 12s
+    { until: 1547,  rate: 20 },    // 滑行+入轨点火 53s
+    { until: 3890,  rate: 60 },    // 部署 39s
+    { until: 31938, rate: 150 },   // 在轨滑行 6小时05分 → 187s
+    { until: 34132, rate: 30 },    // 离轨 73s
+    { until: 35250, rate: 4 },     // 再入 78s
+    { until: 35430, rate: 2 },     // 跨音速/着陆 90s
+    { until: 1e12,  rate: 2 }
+  ];
+
+  /* ---------- 可调参数（面板） ---------- */
+  var PARAM_DEFS = [
+    { key: 'boosterEngines', label: '助推器引擎数', min: 20, max: 33, step: 1, def: 33, unit: '台',
+      desc: '猛禽 3 数量，影响起飞推力与推重比' },
+    { key: 'shipEngines', label: '飞船引擎数', min: 3, max: 6, step: 1, def: 6, unit: '台',
+      desc: '猛禽数量（含真空版），影响上级推力' },
+    { key: 'thrustScale', label: '推力系数', min: 0.8, max: 1.2, step: 0.05, def: 1.0, unit: '×',
+      desc: '引擎实际推力缩放（猛禽 3 节流上限/下限）' },
+    { key: 'fuelScale', label: '燃料装载', min: 0.7, max: 1.2, step: 0.05, def: 1.0, unit: '×',
+      desc: '两级推进剂装载量缩放，影响燃烧时长与 Δv' },
+    { key: 'sepAlt', label: '分离高度', min: 40, max: 80, step: 1, def: 62, unit: 'km',
+      desc: '热级分离目标高度（真实任务约 62-65km）。自适应模式下自动驾驶据此重排俯仰程序' },
+    { key: 'recovery', label: '助推器回收', type: 'select', options: ['溅落美洲湾（真实）', '发射塔捕获'], def: 0,
+      desc: '真实 IFT-14 为美洲湾溅落并演示 FTS；塔架捕获为备选挑战配置' }
+  ];
+
+  function defaultParams() {
+    var p = {};
+    PARAM_DEFS.forEach(function (d) { p[d.key] = (d.type === 'select') ? d.def : d.def; });
+    return p;
+  }
+
+  /* 任务时钟 → 当前压缩倍率 */
+  function rateAt(clock) {
+    for (var i = 0; i < PROFILE.length; i++) {
+      if (clock < PROFILE[i].until) return PROFILE[i].rate;
+    }
+    return PROFILE[PROFILE.length - 1].rate;
+  }
+
+  /* 时间格式化：T+MM:SS 或 T+H:MM:SS */
+  function fmtClock(t) {
+    var neg = t < 0;
+    var s = Math.abs(Math.round(t));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    function z(n) { return (n < 10 ? '0' : '') + n; }
+    var str = h > 0 ? h + ':' + z(m) + ':' + z(ss) : z(m) + ':' + z(ss);
+    return (neg ? 'T-' : 'T+') + str;
+  }
+
+  return {
+    TIMELINE: TIMELINE,
+    PROFILE: PROFILE,
+    PARAM_DEFS: PARAM_DEFS,
+    defaultParams: defaultParams,
+    rateAt: rateAt,
+    fmtClock: fmtClock
+  };
+})();
+if (typeof window !== 'undefined') window.MISSION14 = MISSION14;
+
+</script>
+<script>
+/* ============================================================
+ * PHYS — 星舰 IFT-14 全任务仿真 物理与自动驾驶模块 v2
+ * 新增：真实任务时钟、脚本/自适应双模式、参数化引擎、时间线事件
+ * 挂载全局 PHYS，普通脚本无依赖（可选用 MISSION14）
+ * ============================================================ */
+var PHYS = (function () {
+  'use strict';
+  var G0 = 9.81;
+
+  /* ---------- 基准规格（每台引擎） ---------- */
+  var ENG = {
+    booster: { dry: 200e3, propBase: 3800e3, fPer: 75e6 / 33, isp: 327, area: 64 },
+    ship: { dry: 120e3, propBase: 1200e3, fPer: 14.4e6 / 6, isp: 365, area: 64 }
+  };
+  var TOWER_X = 0;            // 发射塔/捕获点
+  var PLATFORM_X = 80000;     // 美洲湾溅落区（自然弹道落点）
+
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function rhoAt(h) { return 1.225 * Math.exp(-Math.max(0, h) / 8500); }
+  function deg2rad(d) { return d * Math.PI / 180; }
+  function interp(table, x) {
+    if (x <= table[0][0]) return table[0][1];
+    for (var i = 1; i < table.length; i++) {
+      if (x <= table[i][0]) {
+        var a = table[i - 1], b = table[i];
+        return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]);
+      }
+    }
+    return table[table.length - 1][1];
+  }
+
+  /* 程序俯仰表（stack，高度 m → pitch°，0=垂直向上） */
+  var PITCH_STACK = [[0, 0], [800, 2], [2000, 7], [5000, 16], [9000, 26], [15000, 36], [25000, 48], [35000, 60], [45000, 72], [55000, 78], [68000, 82]];
+  /* ship 垂直速度闭环导引剖面 */
+  var VY_SHIP = [[0, 320], [60000, 260], [90000, 190], [110000, 110], [130000, 30]];
+
+  /* ---------- 默认参数 ---------- */
+  function defParams() {
+    if (typeof MISSION14 !== 'undefined') return MISSION14.defaultParams();
+    return { boosterEngines: 33, shipEngines: 6, thrustScale: 1.0, fuelScale: 1.0, sepAlt: 62, recovery: 0 };
+  }
+
+  /* ---------- 状态 ---------- */
+  var S = null;
+  var input = { pitch: 0, yaw: 0, roll: 0 };
+
+  function specOf(v) { return ENG[v.kind === 'ship' ? 'ship' : 'booster']; }
+  function engFrac(v) { return v._engFrac || 1; }
+  function maxF(v) {
+    var n = (v.kind === 'ship') ? S.params.shipEngines : S.params.boosterEngines;
+    return specOf(v).fPer * n * S.params.thrustScale * engFrac(v);
+  }
+  function fuelMaxOf(v) {
+    return ((v.kind === 'ship') ? ENG.ship.propBase : ENG.booster.propBase) * S.params.fuelScale;
+  }
+  function massOf(v) {
+    if (v.kind === 'stack') return 320e3 + v.fuel + v.shipFuel;
+    return specOf(v).dry + v.fuel;
+  }
+  function dragCoef(v) {
+    if (v.kind === 'ship') {
+      var belly = Math.abs(Math.abs(v.pitch) - 90) < 30;
+      return belly ? (v.flaps ? 1.9 : 1.5) : 0.8;
+    }
+    return v.fins ? 1.2 : 0.55;
+  }
+
+  function makeStack() {
+    return {
+      kind: 'stack', x: 0, y: 0, vx: 0, vy: 0, pitch: 0, yaw: 0, roll: 0,
+      throttle: 0, engines: false,
+      fuel: ENG.booster.propBase * S.params.fuelScale, fuelMax: ENG.booster.propBase * S.params.fuelScale,
+      shipFuel: ENG.ship.propBase * S.params.fuelScale, shipFuelMax: ENG.ship.propBase * S.params.fuelScale,
+      alive: true, landed: false, caught: false, crashed: false, splashed: false,
+      fins: false, flaps: false, heat: 0, q: 0, gload: 0,
+      phase: 'COUNTDOWN', tPhase: 0, autoFlip: false, _engFrac: 1
+    };
+  }
+  function makeBooster(src) {
+    return {
+      kind: 'booster', x: src.x, y: src.y, vx: src.vx, vy: src.vy, pitch: src.pitch, yaw: 0, roll: 0,
+      throttle: 0, engines: false, fuel: src.fuel, fuelMax: src.fuelMax,
+      alive: true, landed: false, caught: false, crashed: false, splashed: false,
+      fins: false, flaps: false, heat: 0, q: 0, gload: 0,
+      phase: 'BCOAST', tPhase: 0, autoFlip: false, _engFrac: 1
+    };
+  }
+  function makeShip(src) {
+    return {
+      kind: 'ship', x: src.x, y: src.y, vx: src.vx, vy: src.vy, pitch: src.pitch, yaw: 0, roll: 0,
+      throttle: 0, engines: false, fuel: src.shipFuel, fuelMax: src.shipFuelMax,
+      alive: true, landed: false, caught: false, crashed: false, splashed: false,
+      fins: false, flaps: false, heat: 0, q: 0, gload: 0,
+      phase: 'SASCENT', tPhase: 0, autoFlip: false, _engFrac: 1
+    };
+  }
+
+  function pushEvent(text) {
+    S.events.push({ text: text, t: S.simTime });
+    if (S.events.length > 6) S.events.shift();
+  }
+  function pushToast(text) { S.toasts.push({ text: text, t: S.simTime }); }
+  function mark(id) {
+    if (S.timelineDone[id]) return;
+    S.timelineDone[id] = true;
+    if (typeof MISSION14 !== 'undefined') {
+      var TL = MISSION14.TIMELINE;
+      for (var i = 0; i < TL.length; i++) {
+        if (TL[i].id === id) { pushEvent(TL[i].name); break; }
+      }
+    }
+  }
+
+  /* ---------- 初始化 ---------- */
+  function init(cfg) {
+    cfg = cfg || {};
+    var params = cfg.params || defParams();
+    S = {
+      simTime: -17, running: true, paused: false,
+      mode: cfg.mode || 'auto',
+      timeMode: cfg.timeMode || 'compressed',
+      userSpeed: 1,
+      realspeed: false,
+      assist: true,
+      paramMode: cfg.paramMode || 'script',
+      params: params,
+      recovery: (params.recovery === 1) ? 'tower' : 'sea',
+      active: 'stack',
+      vehicles: {},
+      events: [], toasts: [],
+      stats: { maxAlt: 0, maxSpeed: 0, maxG: 0 },
+      phases: {},
+      missionOver: false, outcome: null, failReason: '', endingNote: '',
+      platformX: (params.recovery === 1) ? TOWER_X : PLATFORM_X,
+      timelineDone: {}, _tlIdx: 0,
+      _maxqDone: false, _orbitDone: false, _flipDone: false, _sepDone: false,
+      _coastOn: false, _engOffEvt: false, _ftsDone: false, _fuelWarned: {}
+    };
+    S.vehicles.stack = makeStack();
+    return S;
+  }
+  function restart() {
+    init({ mode: S.mode, timeMode: S.timeMode, params: S.params, paramMode: S.paramMode });
+  }
+  function getState() { return S; }
+
+  /* ---------- 指令 ---------- */
+  function activeVeh() { return S.vehicles[S.active] || null; }
+  function isManual(v) { return S.mode === 'manual' && S.active === vehKey(v); }
+  function vehKey(v) {
+    for (var k in S.vehicles) if (S.vehicles[k] === v) return k;
+    return 'stack';
+  }
+  function switchVeh() {
+    if (S.mode !== 'manual') return;
+    if (S.vehicles.booster && S.vehicles.ship) {
+      S.active = (S.active === 'booster') ? 'ship' : 'booster';
+      pushEvent('切换控制：' + (S.active === 'booster' ? '超重型助推器' : '星舰飞船'));
+    }
+  }
+  function cmd(c) {
+    if (!S) return;
+    var v = activeVeh();
+    switch (c.type) {
+      case 'throttle':
+        if (v && isManual(v)) { v.throttle = clamp(c.v, 0, 1); if (v.throttle > 0.02) v.engines = true; }
+        break;
+      case 'pitch':
+        if (v && isManual(v)) v.pitch = clamp(c.v, -180, 180);
+        break;
+      case 'engines':
+        if (v && isManual(v)) v.engines = !v.engines;
+        break;
+      case 'fins':
+        if (v && isManual(v)) v.fins = !v.fins;
+        break;
+      case 'flip':
+        if (v && isManual(v)) { v.autoFlip = true; pushEvent('着陆翻转程序启动'); }
+        break;
+      case 'sep':
+        if (v && v.kind === 'stack' && (v.phase === 'MECO' || v.phase === 'HOTSTAGE' || (v.y > 35000 && v.fuel < v.fuelMax * 0.4))) doSeparation();
+        break;
+      case 'assist': S.assist = !S.assist; break;
+      case 'mode':
+        S.mode = (S.mode === 'auto') ? 'manual' : 'auto';
+        pushEvent(S.mode === 'auto' ? '自动驾驶已接管' : '切换手动驾驶');
+        break;
+      case 'speed': S.userSpeed = c.v || 1; break;
+      case 'realspeed':
+        S.realspeed = !S.realspeed;
+        pushEvent(S.realspeed ? '真实时间播放（1×）' : '智能压缩播放');
+        break;
+      case 'switch': switchVeh(); break;
+      case 'pause': S.paused = !S.paused; break;
+      case 'param':
+        if (S.paramMode === 'script' && S.running) return;    // 发射前锁定
+        applyParam(c.key, c.value);
+        break;
+      case 'paramMode':
+        S.paramMode = (c.value === 'adaptive') ? 'adaptive' : 'script';
+        pushEvent(S.paramMode === 'adaptive' ? '自适应模式：参数实时生效' : '脚本模式：真实任务时间线');
+        break;
+    }
+  }
+  function applyParam(key, value) {
+    if (!(key in S.params)) return;
+    S.params[key] = value;
+    if (key === 'recovery') {
+      S.recovery = (value === 1) ? 'tower' : 'sea';
+      S.platformX = (value === 1) ? TOWER_X : PLATFORM_X;
+    }
+    if (key === 'fuelScale') {
+      var r = value / (S._lastFuelScale || 1);
+      S._lastFuelScale = value;
+      for (var k in S.vehicles) {
+        var v = S.vehicles[k];
+        v.fuel = clamp(v.fuel * r, 0, fuelMaxOf(v));
+        v.fuelMax = fuelMaxOf(v);
+        if (v.kind === 'stack') { v.shipFuel = clamp(v.shipFuel * r, 0, ENG.ship.propBase * S.params.fuelScale); v.shipFuelMax = ENG.ship.propBase * S.params.fuelScale; }
+      }
+    }
+  }
+  function setInput(k, v) { input[k] = clamp(v, -1, 1); }
+
+  /* ---------- 分离 ---------- */
+  function doSeparation() {
+    var st = S.vehicles.stack;
+    if (!st || S._sepDone) return;
+    S._sepDone = true;
+    st.engines = false; st.throttle = 0;
+    var booster = makeBooster(st);
+    booster.phase = (S.paramMode === 'script') ? 'BOOSTBACK' : (S.recovery === 'sea' ? 'BCOAST' : 'BOOSTBACK');
+    var ship = makeShip(st);
+    ship.engines = true; ship.throttle = 0.8;
+    ship._engFrac = (S.paramMode === 'script') ? 5 / 6 : 1;   // 脚本：一台真空猛禽提前关机
+    ship.phase = 'SASCENT';
+    ship.vy += Math.cos(deg2rad(st.pitch)) * 2.5;
+    ship.vx += Math.sin(deg2rad(st.pitch)) * 2.5;
+    delete S.vehicles.stack;
+    S.vehicles.booster = booster;
+    S.vehicles.ship = ship;
+    S.active = 'ship';
+    pushEvent('热级分离');
+  }
+
+  /* ---------- 时间倍率（任务时钟压缩剖面） ---------- */
+  function effSpeed() {
+    if (!S) return 1;
+    if (S.realspeed) return S.userSpeed;
+    var rate = 2;
+    if (typeof MISSION14 !== 'undefined') rate = MISSION14.rateAt(S.simTime);
+    return rate * S.userSpeed;
+  }
+
+  /* ---------- 脚本时间线推进 ---------- */
+  function timelineStep() {
+    if (typeof MISSION14 === 'undefined') return;
+    var TL = MISSION14.TIMELINE;
+    while (S._tlIdx < TL.length && TL[S._tlIdx].t <= S.simTime) {
+      var node = TL[S._tlIdx];
+      S._tlIdx++;
+      mark(node.id);
+      timelineAction(node.id);
+    }
+  }
+  function timelineAction(id) {
+    if (S.paramMode !== 'script') {
+      /* 自适应：仅通用动作（点火/相位标签），其余由条件机触发 */
+      if (id === 'IGNITION') {
+        var st0 = S.vehicles.stack;
+        if (st0) { st0.engines = true; st0.throttle = 1; }
+      } else if (id === 'LIFTOFF') {
+        var st1 = S.vehicles.stack;
+        if (st1 && st1.engines) { st1.phase = 'LIFTOFF'; st1.tPhase = 0; }
+      } else if (id === 'ORBIT') {
+        S._orbitDone = true;
+      } else if (id === 'SPLASH' && S.vehicles.ship && S.vehicles.ship.alive && !S.vehicles.ship.landed) {
+        forceShipSplash();
+      }
+      return;
+    }
+    var st = S.vehicles.stack, b = S.vehicles.booster, sh = S.vehicles.ship;
+    switch (id) {
+      case 'IGNITION':
+        if (st) { st.engines = true; st.throttle = 1; }
+        break;
+      case 'LIFTOFF':
+        if (st && st.engines) { st.phase = 'LIFTOFF'; st.tPhase = 0; }
+        break;
+      case 'MAXQ': S._maxqDone = true; break;
+      case 'MECO':
+        if (st) { st.phase = 'MECO'; st.tPhase = 0; st.engines = false; st.throttle = 0; }
+        break;
+      case 'HOTSTAGE':
+        if (st) doSeparation();
+        break;
+      case 'BOOSTBACK':
+        if (b) { b.phase = 'BOOSTBACK'; b.tPhase = 0; b.engines = true; b._engFrac = 31 / 33; }
+        break;
+      case 'BOOSTBACK_END':
+        if (b) { b.engines = false; b.throttle = 0; b._engFrac = 1; b.phase = 'BCOAST'; b.tPhase = 0; }
+        break;
+      case 'BLAND':
+        if (b && !b.landed) { b.phase = 'BLANDING'; b.tPhase = 0; b.engines = true; b._engFrac = 11 / 33; }
+        break;
+      case 'BSPLASH':
+        if (b && !b.landed && !b.crashed) {
+          b.landed = true; b.splashed = true; b.alive = true;
+          b.y = 0; b.vy = 0; b.vx = 0; b.throttle = 0; b.engines = false;
+          b.phase = 'RECOVERED';
+        }
+        break;
+      case 'SECO1':
+        if (sh) { sh.phase = 'COAST'; sh.tPhase = 0; sh.engines = false; sh.throttle = 0; S._coastOn = true; }
+        break;
+      case 'OIB':
+        if (sh) { sh.phase = 'OIB'; sh.tPhase = 0; sh.engines = true; sh.throttle = 1; sh._engFrac = 1 / 6; }
+        break;
+      case 'ORBIT':
+        if (sh) { sh.engines = false; sh.throttle = 0; sh.phase = 'ORBIT'; sh.tPhase = 0; sh._engFrac = 1; S._orbitDone = true; }
+        break;
+      case 'DEORBIT':
+        if (sh) { sh.phase = 'DEORBIT'; sh.tPhase = 0; sh.engines = true; sh.throttle = 1; sh._engFrac = 1 / 6; }
+        break;
+      case 'DEORBIT_END':
+        if (sh) { sh.engines = false; sh.throttle = 0; sh.phase = 'DESCENT'; sh.tPhase = 0; S._coastOn = false; }
+        break;
+      case 'ENTRY':
+        if (sh && !sh.landed) { sh.phase = 'REENTRY'; sh.tPhase = 0; }
+        break;
+      case 'SLAND':
+        if (sh && !sh.landed) { sh.phase = 'SLANDING'; sh.tPhase = 0; sh.engines = true; sh._engFrac = 3 / 6; }
+        break;
+      case 'FLIP':
+        if (sh) { sh.autoFlip = true; S._flipDone = true; }
+        break;
+      case 'SPLASH':
+        if (sh && !sh.landed && !sh.crashed) forceShipSplash();
+        break;
+    }
+  }
+  function forceShipSplash() {
+    var sh = S.vehicles.ship;
+    if (!sh) return;
+    sh.landed = true; sh.splashed = true; sh.alive = true;
+    sh.y = 0; sh.vy = 0; sh.vx = 0; sh.throttle = 0; sh.engines = false;
+    sh.phase = 'RECOVERED';
+    endMission(boosterRecovered() ? 'success' : 'partial');
+  }
+
+  /* ---------- 载具物理 ---------- */
+  function stepVeh(v, h) {
+    if (!v.alive || v.landed || v.crashed) return;
+    /* 未离地钳制 */
+    if (!v._hasFlown) {
+      if (v.y > 10) v._hasFlown = true;
+      else {
+        v.y = 0; v.vy = Math.max(0, v.vy); v.vx = 0;
+        if (!(v.engines && v.throttle > 0.05)) return;
+        if (maxF(v) * v.throttle <= massOf(v) * G0) return;
+      }
+    }
+    var m = massOf(v);
+    var rho = rhoAt(v.y);
+    var vv = Math.hypot(v.vx, v.vy);
+
+    /* 推力与燃料 */
+    var F = 0, mdot = 0;
+    if (v.engines && v.fuel > 0 && v.throttle > 0.01) {
+      F = maxF(v) * v.throttle;
+      mdot = F / (specOf(v).isp * G0);
+      v.fuel = Math.max(0, v.fuel - mdot * h);
+    }
+    var pr = deg2rad(v.pitch);
+    var axT = F * Math.sin(pr) / m;
+    var ayT = F * Math.cos(pr) / m;
+
+    /* 阻力（在轨滑行魔法窗口内为零） */
+    var coast = (v.kind === 'ship') && S._coastOn && !isManual(v);
+    var Fd = coast ? 0 : 0.5 * rho * vv * vv * specOf(v).area * dragCoef(v);
+    var axD = 0, ayD = 0;
+    if (!coast && vv > 0.5) { axD = -Fd * v.vx / vv / m; ayD = -Fd * v.vy / vv / m; }
+
+    /* RCS 归位辅助 */
+    var axR = rcsAssist(v);
+
+    /* 手动持续输入 */
+    if (isManual(v)) {
+      v.pitch += input.pitch * 12 * h;
+      v.yaw += input.yaw * 8 * h;
+      v.roll += input.roll * 25 * h;
+      if (v.autoFlip) {
+        var dpf = (0 - v.pitch);
+        v.pitch += clamp(dpf, -20 * h, 20 * h);
+        if (Math.abs(dpf) < 1) v.autoFlip = false;
+      }
+    }
+
+    var ax = axT + axD + axR;
+    var ay = ayT + ayD - (coast ? 0 : G0);
+
+    v.vx += ax * h; v.vy += ay * h;
+    v.x += v.vx * h; v.y += v.vy * h;
+
+    var gload = Math.hypot(axT + axD, ayT + ayD) / G0;
+    v.q = coast ? 0 : 0.5 * rho * vv * vv;
+    if (v.vy < 0 && v.y < 100e3 && vv > 300 && !coast) {
+      var belly = (v.kind === 'ship' && Math.abs(Math.abs(v.pitch) - 90) < 30) ? 0.5 : 1;
+      v.heat = Math.sqrt(rho) * vv * vv * vv * 0.45e-9 * belly;
+    } else v.heat = Math.max(0, v.heat - 0.05);
+
+    v.gload = gload;
+    S.stats.maxAlt = Math.max(S.stats.maxAlt, v.y);
+    S.stats.maxSpeed = Math.max(S.stats.maxSpeed, vv);
+    S.stats.maxG = Math.max(S.stats.maxG, gload);
+  }
+
+  function rcsAssist(v) {
+    var tx, maxY, div;
+    if (v.kind === 'ship') {
+      if (!(v.vy < 0 && v.y < 110e3 && (v.phase === 'REENTRY' || v.phase === 'FLIP' || v.phase === 'SLANDING'))) return 0;
+      tx = v._landX || TOWER_X; maxY = 10; div = 40;
+    } else if (v.kind === 'booster') {
+      if (!(v.y < 60e3 && v.vy < 0)) return 0;
+      tx = S.platformX;
+      maxY = (v.y < 12e3) ? 16 : 10;
+      div = (v.y < 5e3) ? 8 : ((v.y < 12e3) ? 15 : 40);
+    } else return 0;
+    var desiredVx = clamp((tx - v.x) / div, -700, 700);
+    return clamp((desiredVx - v.vx) * 0.5, -maxY, maxY);
+  }
+
+  function seekPitch(v, target, rate, h) {
+    var dp = target - v.pitch;
+    v.pitch += clamp(dp, -rate * h, rate * h);
+    return Math.abs(dp);
+  }
+  function capThrottle(v, base, gCap) {
+    var cap = gCap * G0 * massOf(v) / Math.max(1, maxF(v));
+    return clamp(Math.min(base, cap), 0, 1);
+  }
+
+  /* ---------- 自动驾驶 ---------- */
+  function autopilot(v, h) {
+    var script = (S.paramMode === 'script');
+    var tx = S.platformX;
+    switch (v.kind) {
+      case 'stack':
+        if (v.engines) {
+          var thr = 1;
+          if (v.q > 22000) thr = 0.72;
+          v.throttle = capThrottle(v, thr, 4.6);
+          seekPitch(v, interp(PITCH_STACK, v.y), 8, h);
+        } else v.throttle = 0;
+        break;
+      case 'booster':
+        if (script) {
+          switch (v.phase) {
+            case 'BOOSTBACK':
+              v.engines = true;
+              v.throttle = capThrottle(v, 0.25, 5.0);   /* 耗尽式返推：31台低油门 */
+              seekPitch(v, (v.vx > -100) ? -100 : -80, 20, h);
+              break;
+            case 'BCOAST':
+              v.engines = false; v.throttle = 0;
+              if (v.y < 60e3) v.fins = true;
+              seekPitch(v, 0, 8, h);
+              if (v.vy < 0 && v.y < 28000) { v.phase = 'BLANDING'; v.tPhase = 0; pushEvent('助推器着陆点火'); }
+              break;
+            case 'BLANDING': {
+              v.engines = true;
+              /* 逐级减推力：11→5→3 台（真实 IFT-14） */
+              if (S.simTime >= 412) v._engFrac = 3 / 33;
+              else if (S.simTime >= 405) v._engFrac = 5 / 33;
+              else v._engFrac = 11 / 33;
+              var vyT = -clamp(Math.sqrt(Math.max(0, v.y - 2)) * 0.62, 2, 80);
+              var aCmd = G0 + (vyT - v.vy) * 0.6;
+              v.throttle = capThrottle(v, clamp(aCmd * massOf(v) / Math.max(1, maxF(v)), 0, 1), 3.5);
+              seekPitch(v, 0, 10, h);
+              break;
+            }
+          }
+        } else {
+          switch (v.phase) {
+            case 'BOOSTBACK': {
+              var tFall = Math.sqrt(2 * Math.max(v.y, 60e3) / G0) + 30;
+              var vxT = clamp((tx - v.x) / tFall, -1600, -300);
+              v.engines = true;
+              v.throttle = capThrottle(v, 0.393, 5.0);
+              seekPitch(v, (v.vx > vxT) ? -100 : -80, 20, h);
+              if (v.vx <= vxT + 40 || v.tPhase > 60) { v.engines = false; v.throttle = 0; v.phase = 'BCOAST'; v.tPhase = 0; }
+              break;
+            }
+            case 'BCOAST': {
+              v.engines = false; v.throttle = 0;
+              if (v.y < 60e3) v.fins = true;
+              seekPitch(v, clamp((tx - v.x) / 1500, -12, 12), 8, h);
+              var rhoC = Math.max(rhoAt(v.y), 1e-7);
+              var termC = Math.sqrt(2 * massOf(v) * G0 / (rhoC * 1.2 * 64));
+              var vvC = Math.hypot(v.vx, v.vy);
+              if (v.vy < 0 && v.y < 55e3 && (vvC > termC * 1.08 || vvC > 1300)) { v.phase = 'BENTRY'; v.tPhase = 0; }
+              if (v.vy < 0 && v.y < 4000) { v.phase = 'BLANDING'; v.tPhase = 0; }
+              break;
+            }
+            case 'BENTRY': {
+              var vv = Math.hypot(v.vx, v.vy);
+              var term = Math.sqrt(2 * massOf(v) * G0 / (Math.max(rhoAt(v.y), 1e-7) * 1.2 * 64));
+              var vT = Math.min(term * 0.95, Math.sqrt(2 * 45000 / Math.max(rhoAt(v.y), 1e-7)));
+              var burn = (vv > vT) && (v.vy < -30);
+              v.engines = burn;
+              v.throttle = capThrottle(v, burn ? ((S.recovery === 'sea') ? 0.85 : 0.393) : 0, 5.0);
+              seekPitch(v, clamp((tx - v.x) / 1500, -12, 12), 10, h);
+              if (v.y < 4000) { v.engines = false; v.throttle = 0; v.phase = 'BLANDING'; v.tPhase = 0; }
+              break;
+            }
+            case 'BLANDING': {
+              v.engines = true;
+              var vyT2 = -clamp(Math.sqrt(Math.max(0, v.y - 2)) * 0.62, 2, 80);
+              var aCmd2 = G0 + (vyT2 - v.vy) * 0.6;
+              v.throttle = capThrottle(v, clamp(aCmd2 * massOf(v) / Math.max(1, maxF(v)), 0, 1), 3.5);
+              seekPitch(v, clamp((tx - v.x) / 800, -15, 15), 10, h);
+              break;
+            }
+          }
+        }
+        break;
+      case 'ship':
+        switch (v.phase) {
+          case 'SASCENT': {
+            /* 垂直速度闭环导引 */
+            var aMax = maxF(v) / massOf(v);
+            var vyT3 = interp(VY_SHIP, v.y);
+            var kd = clamp((v.vy - vyT3) * 0.012, 0, 6);
+            var cosP = clamp((G0 - kd) / aMax, 0.03, 0.999);
+            seekPitch(v, Math.acos(cosP) * 180 / Math.PI, 8, h);
+            v.engines = true;
+            v.throttle = capThrottle(v, 1, 4.2);
+            break;
+          }
+          case 'COAST': case 'ORBIT':
+            v.engines = false; v.throttle = 0;
+            break;
+          case 'OIB':
+            v.engines = true; v.throttle = 1;
+            seekPitch(v, 88, 10, h);   /* 顺行水平入轨点火 */
+            break;
+          case 'DEORBIT':
+            v.engines = true; v.throttle = (script ? 1 : 0.4);
+            seekPitch(v, Math.atan2(-v.vx, -v.vy) * 180 / Math.PI, 25, h);
+            break;
+          case 'DESCENT':
+            v.engines = false; v.throttle = 0;
+            seekPitch(v, 90, 8, h);
+            break;
+          case 'REENTRY':
+            v.engines = false; v.throttle = 0;
+            if (v.y < 75e3) v.flaps = true;
+            if (!v._landX && v.y < 60e3) { v._landX = v.x + v.vx * 45; pushEvent('溅落区已确认'); }
+            if (v.y < 30e3) v._landX = v.x + v.vx * 40;
+            seekPitch(v, 90, 15, h);
+            break;
+          case 'FLIP':
+            if (v.y < 75e3) v.flaps = true;
+            seekPitch(v, 0, 25, h);
+            break;
+          case 'SLANDING': {
+            v.engines = true;
+            var vyT4 = clamp(-Math.sqrt(Math.max(0, v.y - 2)) * 1.0, -140, -4);
+            var aCmd3 = G0 + (vyT4 - v.vy) * 0.8;
+            v.throttle = capThrottle(v, clamp(aCmd3 * massOf(v) / Math.max(1, maxF(v)), 0, 1), 4.2);
+            break;
+          }
+        }
+        break;
+    }
+  }
+
+  /* ---------- 阶段机（自适应模式的条件推进） ---------- */
+  function phaseLogic(v, h) {
+    v.tPhase += h;
+    var adaptive = (S.paramMode === 'adaptive');
+    /* 飞船下降段 transitions：两种模式通用（高度触发，时间线节点兜底） */
+    if (v.kind === 'ship') {
+      if (v.phase === 'REENTRY' && v.y < 3000) {
+        v.phase = 'FLIP'; v.tPhase = 0; S._flipDone = true; pushEvent('着陆翻转');
+      } else if (v.phase === 'FLIP' && Math.abs(v.pitch) < 25 && v.y < 2300) {
+        v.phase = 'SLANDING'; v.tPhase = 0;
+      }
+    }
+    if (v.kind === 'stack' && adaptive) {
+      switch (v.phase) {
+        case 'COUNTDOWN':
+          if (S.simTime >= 0 && v.engines) { v.phase = 'LIFTOFF'; v.tPhase = 0; pushEvent('点火升空'); }
+          break;
+        case 'LIFTOFF':
+          if (v.y > 800) { v.phase = 'PITCH_KICK'; v.tPhase = 0; }
+          break;
+        case 'PITCH_KICK':
+          if (v.q > 22000) { v.phase = 'MAX-Q'; v.tPhase = 0; S._maxqDone = true; }
+          break;
+        case 'MAX-Q':
+          if (v.q < 20000) { v.phase = 'ASCENT'; v.tPhase = 0; }
+          break;
+        case 'ASCENT':
+          if (v.fuel <= v.fuelMax * 0.25 || v.y > S.params.sepAlt * 1000) {
+            v.phase = 'MECO'; v.tPhase = 0; v.engines = false; v.throttle = 0;
+            pushEvent('MECO 主引擎关机');
+          }
+          break;
+        case 'MECO':
+          if (v.tPhase > 2.5 && !isManual(v)) doSeparation();
+          break;
+      }
+    }
+    if (v.kind === 'ship' && adaptive) {
+      switch (v.phase) {
+        case 'SASCENT': {
+          var vv = Math.hypot(v.vx, v.vy);
+          var nominal = (vv >= 7350 && v.y >= 95000);
+          var fuelGuard = (v.fuel <= v.fuelMax * 0.07 && vv >= 7050 && v.y >= 90000);   // 燃料感知：保带着陆储备
+          if (nominal || fuelGuard) {
+            v.phase = 'ORBIT'; v.tPhase = 0;
+            v.engines = false; v.throttle = 0;
+            S._coastOn = true;
+            pushEvent('SECO — 进入亚轨道');
+          }
+          break;
+        }
+        case 'ORBIT':
+          if (v.tPhase > 20 && !S._orbitDone) { v.phase = 'OIB'; v.tPhase = 0; v._engFrac = 1 / 6; pushEvent('入轨点火'); }
+          else if (v.tPhase > 25 && S._orbitDone) { v.phase = 'DEORBIT'; v.tPhase = 0; pushEvent('离轨点火'); }
+          break;
+        case 'OIB':
+          if (v.tPhase > 19) {
+            v.engines = false; v.throttle = 0; v._engFrac = 1;
+            v.phase = 'ORBIT'; v.tPhase = 0;
+            S._orbitDone = true;
+            pushEvent('入轨成功');
+          }
+          break;
+        case 'DEORBIT':
+          if (v.tPhase > 8) {
+            v.engines = false; v.throttle = 0; v._engFrac = 1;
+            v.phase = 'DESCENT'; v.tPhase = 0;
+            S._coastOn = false;
+            pushEvent('离轨完成');
+          }
+          break;
+        case 'DESCENT':
+          if (v.y <= 100.5e3) { v.phase = 'REENTRY'; v.tPhase = 0; pushEvent('再入大气层'); }
+          break;
+        case 'REENTRY':
+          if (v.y < 3000) { v.phase = 'FLIP'; v.tPhase = 0; S._flipDone = true; pushEvent('着陆翻转'); }
+          break;
+        case 'FLIP':
+          if (Math.abs(v.pitch) < 25 && v.y < 2300) { v.phase = 'SLANDING'; v.tPhase = 0; }
+          break;
+      }
+    }
+    if (v.kind === 'booster' && adaptive) {
+      switch (v.phase) {
+        case 'BCOAST':
+          if (v.vy < 0 && v.y < 55e3) { v.phase = 'BENTRY'; v.tPhase = 0; pushEvent('助推器再入点火'); }
+          break;
+      }
+    }
+  }
+
+  /* ---------- 滑行/下降魔法导引（物理外的轨道托举） ---------- */
+  function coastGuidance(v, h) {
+    if (v.kind !== 'ship' || !S._coastOn) return;
+    var yT = S._orbitDone ? 275e3 : 155e3;
+    var vyWanted = clamp((yT - v.y) * 0.004, -80, 80);
+    v.vy += clamp(vyWanted - v.vy, -30 * h, 30 * h);
+    if (v.phase === 'COAST' || v.phase === 'ORBIT') {
+      v.pitch += clamp(88 - v.pitch, -3 * h, 3 * h);
+    }
+  }
+  function descentGuidance(v, h) {
+    if (v.kind !== 'ship' || v.phase !== 'DESCENT') return;
+    var tRem = Math.max(40, 34132 - S.simTime);
+    var vyW = -(v.y - 100e3) / tRem;
+    if (S.paramMode === 'adaptive') vyW = -(v.y - 100e3) / 240;
+    v.vy = clamp(vyW, -140, -12);
+    if (v.vx < 6000) v.vx = 6000;
+  }
+
+  /* ---------- 失败检测与接地 ---------- */
+  function checks(v) {
+    if (!v.alive || v.landed || !v._hasFlown) return;
+    var vv = Math.hypot(v.vx, v.vy);
+    var qLim = (v.kind === 'ship')
+      ? ((v.phase === 'REENTRY' || v.phase === 'FLIP' || v.phase === 'SLANDING' || v.phase === 'DESCENT') ? 1e9 : 110000)
+      : ((S.recovery === 'sea') ? 160000 : 110000);
+    if (v.q > qLim) return fail(v, '结构解体：最大动压超限');
+    var gLim = (v.kind === 'ship') ? 20.0 : 6.5;
+    if (v.gload > gLim) return fail(v, '结构过载：' + v.gload.toFixed(1) + 'g 超限');
+    var heatLim = (v.kind === 'ship') ? 5.5 : 4.2;
+    if (v.heat > heatLim) return fail(v, v.kind === 'ship' ? '再入烧毁：热流超限，再入角度过陡或姿态错误' : '助推器烧毁：缺少减速措施');
+    var tx = (v.kind === 'ship') ? (v._landX || TOWER_X) : S.platformX;
+    if (v.y <= 0 && v.vy < 0) {
+      var water = (v.kind === 'booster' && S.recovery === 'sea') || v.kind === 'ship';   // IFT-14 双溅落
+      var softV = water ? 30 : 10;
+      var soft = (v.vy > -softV) && (Math.abs(v.vx) < (water ? 40 : 8)) && (Math.abs(v.pitch) < 45);
+      var near = Math.abs(v.x - tx) < ((v.kind === 'ship') ? 800 : (water ? 60000 : 500));
+      if (soft && near) {
+        v.landed = true; v.y = 0; v.vx = 0; v.vy = 0; v.throttle = 0; v.engines = false;
+        if (water) v.splashed = true;
+        v.phase = 'RECOVERED';
+        if (v.kind === 'ship') {
+          pushEvent(v.splashed ? '星舰溅落成功' : '星舰着陆成功');
+          endMission(boosterRecovered() ? 'success' : 'partial');
+        } else {
+          v.splashed = true;
+          pushEvent('助推器溅落成功');
+        }
+      } else {
+        fail(v, !near ? (v.kind === 'ship' ? '偏离着陆区坠毁' : '偏离回收点坠毁')
+          : '接地速度过大（|vy|=' + Math.abs(v.vy).toFixed(0) + ' m/s）');
+      }
+      return;
+    }
+    /* 塔架捕获 */
+    if (v.kind === 'booster' && v.y < 165 && Math.abs(v.x - TOWER_X) < 120 && Math.abs(v.vx) < 10 && v.vy > -10 && v.vy < 0 && S.recovery === 'tower') {
+      v.caught = true; v.landed = true; v.alive = true;
+      v.x = TOWER_X; v.y = 150; v.vx = 0; v.vy = 0;
+      v.throttle = 0; v.engines = false; v.phase = 'RECOVERED';
+      pushEvent('发射塔回收成功 — 机械臂已捕获');
+    }
+    var vk = vehKey(v);
+    if (v.fuel <= 0 && v.engines && !S._fuelWarned[vk]) {
+      S._fuelWarned[vk] = true;
+      pushToast(v.kind === 'ship' ? '警告：飞船燃料耗尽' : '警告：助推器燃料耗尽');
+    }
+    if (v.kind !== 'ship' && v.x > 5e7) fail(v, '偏离任务空域');
+  }
+  function boosterRecovered() {
+    var b = S.vehicles.booster;
+    return !b || b.caught || b.landed;
+  }
+  function fail(v, reason) {
+    if (v.crashed) return;
+    v.crashed = true; v.alive = false;
+    v.engines = false; v.throttle = 0;
+    pushToast(v.kind === 'ship' ? '任务失败：' + reason : '助推器损失：' + reason);
+    if (v.kind === 'ship') endMission('fail', reason);
+    else S.endingNote = '（助推器损失：' + reason + '）';
+  }
+  function endMission(outcome, reason) {
+    if (S.missionOver) return;
+    S.missionOver = true;
+    S.outcome = outcome;
+    S.failReason = reason || '';
+    S.running = false;
+    if (outcome === 'success') S.endingNote = boosterRecovered() ? '' : (S.endingNote || '（助推器损失）');
+  }
+
+  /* ---------- 总推进 ---------- */
+  function step(dtSim) {
+    if (!S || S.paused || S.missionOver || !S.running) return;
+    var n = Math.max(1, Math.ceil(dtSim / 0.05));
+    var h = dtSim / n;
+    for (var i = 0; i < n; i++) {
+      S.simTime += h;
+      timelineStep();
+      if (S.missionOver) return;
+      for (var k in S.vehicles) {
+        var v = S.vehicles[k];
+        var manual = isManual(v);
+        if (!manual) autopilot(v, h);
+        coastGuidance(v, h);
+        descentGuidance(v, h);
+        phaseLogic(v, h);
+        stepVeh(v, h);
+        checks(v);
+      }
+      if (!S._engOffEvt && S.simTime > 60 && S.vehicles.stack) {
+        S._engOffEvt = true;
+        S.vehicles.stack._engFrac = 32 / 33;
+        pushToast('一台猛禽引擎故障关机（32/33）');
+      }
+      if (!S._ftsDone && S.simTime > 425 && S.vehicles.booster && S.vehicles.booster.splashed) {
+        S._ftsDone = true;
+        pushToast('FTS 飞行终止系统触发演示（安全硬件验证）');
+      }
+    }
+    S.phases = {};
+    for (var k2 in S.vehicles) S.phases[k2] = S.vehicles[k2].phase;
+  }
+
+  /* ---------- checklist ---------- */
+  function checklist() {
+    if (!S) return [];
+    var ship = S.vehicles.ship, booster = S.vehicles.booster, stack = S.vehicles.stack;
+    var d = S.timelineDone;
+    function dn(id) { return !!d[id]; }
+    return [
+      { name: '点火', done: dn('IGNITION') || dn('LIFTOFF'), now: !!(stack && stack.phase === 'COUNTDOWN') },
+      { name: '上升', done: dn('MAXQ') || dn('MECO'), now: !!(stack && (stack.phase === 'LIFTOFF' || stack.phase === 'PITCH_KICK' || stack.phase === 'MAX-Q' || stack.phase === 'ASCENT')) },
+      { name: 'MAX-Q', done: dn('MAXQ'), now: !!(stack && stack.phase === 'MAX-Q') },
+      { name: '热级分离', done: dn('HOTSTAGE') || dn('BOOSTBACK'), now: !!(stack && stack.phase === 'MECO') },
+      { name: '助推器返程', done: dn('BSPLASH') || !!(booster && booster.landed), now: !!(booster && !booster.landed && !booster.crashed) },
+      { name: '入轨', done: dn('ORBIT'), now: !!(ship && (ship.phase === 'SASCENT' || ship.phase === 'COAST' || ship.phase === 'OIB')) },
+      { name: '再入', done: dn('ENTRY') || !!(ship && (ship.phase === 'REENTRY' || ship.phase === 'FLIP' || ship.phase === 'SLANDING' || ship.landed)), now: !!(ship && ship.phase === 'DESCENT') },
+      { name: '着陆翻转', done: dn('FLIP') || S._flipDone, now: !!(ship && ship.phase === 'FLIP') },
+      { name: '溅落/着陆', done: !!(ship && (ship.landed || ship.crashed)), now: !!(ship && ship.phase === 'SLANDING') }
+    ];
+  }
+
+  return {
+    init: init,
+    step: step,
+    effSpeed: effSpeed,
+    cmd: cmd,
+    setInput: setInput,
+    restart: restart,
+    checklist: checklist,
+    getState: getState
+  };
+})();
+if (typeof window !== 'undefined') window.PHYS = PHYS;
+
+</script>
+<script>
+/* ============================================================
+   STARSHIP FLIGHT 14 — 渲染模块 (RENDER)
+   全局普通脚本，禁止 import/export。只读 state（PHYS.state），
+   内部维护：相机平滑跟随 / 粒子系统(上限600,池化复用) / 屏幕震动 /
+   星空缓存 / 机械臂合拢动画 / 爆炸与捕获特效。
+   整合者每帧调用 RENDER.draw(PHYS.state, dtReal)。
+   本模块不使用 requestAnimationFrame，不依赖 PHYS/UI。
+   ============================================================ */
+(function(){
+'use strict';
+const RENDER = {};
+
+/* ---------------- 基础 ---------------- */
+let cv = null, ctx = null, W = 0, H = 0, dpr = 1;
+let tR = 0;                          // 真实时间累计(秒)，用于闪烁/星空微动
+
+const RAD = Math.PI / 180;
+function clamp(v, a, b){ return v < a ? a : (v > b ? b : v); }
+function mix(a, b, t){ return a + (b - a) * t; }
+function rnd(a, b){ return a + Math.random() * (b - a); }
+
+/* ---------------- 相机 ---------------- */
+let camX = 0, camY = 70, ppm = 1.6, camInit = false;
+const CAM_BIAS = 70;                 // 契约外自定：镜头高度偏置，让载具略低于屏幕中心、地面构图更好
+function sxOf(x){ return W / 2 + (x - camX) * ppm; }
+function syOf(y){ return H / 2 - (y - camY) * ppm; }
+
+/* ---------------- 震动 / 白闪 ---------------- */
+let shake = 0, shX = 0, shY = 0, flash = 0;
+
+/* ---------------- 星空缓存(200颗) ---------------- */
+const STARN = 200, stars = [];
+for (let i = 0; i < STARN; i++){
+  stars.push({
+    x: Math.random(), y: Math.random(),
+    z: 0.2 + Math.random() * 0.8,    // 视差深度
+    tw: 0.5 + Math.random() * 2.2,   // 闪烁频率
+    ph: Math.random() * 6.283,
+    s: 0.6 + Math.random() * 1.4     // 星点大小(px)
+  });
+}
+
+/* ---------------- 粒子池(上限600，复用，避免每帧分配) ---------------- */
+const MAXP = 600;
+const pool = [];
+let pN = 0;                          // 活跃粒子数，pool[0..pN-1] 有效
+for (let i = 0; i < MAXP; i++){
+  pool.push({
+    type: 'smoke',
+    x: 0, y: 0, vx: 0, vy: 0,
+    life: 0, ttl: 1,
+    size: 2, grow: 0,
+    drag: 0, grav: 0,                // 阻力系数 / 重力加速度(正=下坠)
+    rot: 0, vr: 0,
+    r: 200, g: 200, b: 210, a: 0.3
+  });
+}
+function pSpawn(){                   // 满时随机覆盖一个旧粒子
+  if (pN < MAXP) return pool[pN++];
+  return pool[(Math.random() * MAXP) | 0];
+}
+function pKill(i){                   // swap-remove，O(1)
+  const p = pool[i], q = pool[pN - 1];
+  pool[i] = q; pool[pN - 1] = p;
+  pN--;
+}
+
+/* ---------------- 冲击波环池 ---------------- */
+const waves = [];
+for (let i = 0; i < 5; i++) waves.push({ on: false, x: 0, y: 0, t: 0, ttl: 0.9 });
+
+/* ---------------- 边沿检测 / 动画状态 ---------------- */
+const prevCrash = { stack: false, booster: false, ship: false };
+const seenAlive  = { stack: false, booster: false, ship: false };
+let prevCaught = false;
+let lastSim = -1e9;
+let armT = 0;                                        // 0张开 → 1合拢
+const finT  = { stack: 0, booster: 0, ship: 0 };     // 栅格舵展开动画 0..1
+const flapT = { stack: 0, ship: 0 };                 // 船体襟翼展开动画 0..1
+
+const LEN = { stack: 123, booster: 71, ship: 52 };
+
+/* 载具几何中心(世界坐标)，结果放 cX_/cY_ 避免分配 */
+let cX_ = 0, cY_ = 0;
+function vehCenter(v, L){
+  const p = (v.pitch || 0) * RAD;
+  cX_ = v.x + Math.sin(p) * L / 2;   // y 为载具底部(基部)，中心 = 基部 + 朝向·L/2
+  cY_ = v.y + Math.cos(p) * L / 2;
+}
+
+/* ---------------- 圆角矩形路径 ---------------- */
+function rr(x, y, w, h, r){
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/* ============================================================
+   初始化 / 尺寸
+   ============================================================ */
+RENDER.init = function (canvas){
+  cv = canvas;
+  ctx = cv.getContext('2d');
+  RENDER.resize();
+  window.addEventListener('resize', RENDER.resize);
+};
+
+RENDER.resize = function (){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.width  = Math.max(1, Math.round(W * dpr));
+  cv.height = Math.max(1, Math.round(H * dpr));
+  if (cv.style){
+    cv.style.width  = W + 'px';
+    cv.style.height = H + 'px';
+  }
+};
+
+/* ============================================================
+   特效生成
+   ============================================================ */
+
+/* 尾焰烟尘粒子 */
+function spawnFlameFx(v, dtS){
+  const thr = v.throttle || 0;
+  const rhoN = Math.exp(-Math.max(0, v.y) / 8500);
+  if (rhoN < 0.03 || thr < 0.05) return;
+  const p = (v.pitch || 0) * RAD;
+  const dx = Math.sin(p), dy = Math.cos(p);
+  const bx = v.x - dx * 2, by = v.y - dy * 2;   // 喷口世界位置(基部略后方)
+  /* 烟团 */
+  let n = Math.min(7, ((9 + 30 * thr) * rhoN * dtS + Math.random()) | 0);
+  for (; n > 0; n--){
+    const q = pSpawn();
+    q.type = 'smoke';
+    q.x = bx + rnd(-2, 2); q.y = by + rnd(-1, 3);
+    const spd = rnd(20, 80) * (0.4 + thr);
+    q.vx = v.vx * 0.3 - dx * spd + rnd(-8, 8);
+    q.vy = v.vy * 0.3 - dy * spd + rnd(-4, 10);
+    q.ttl = rnd(1.2, 2.8); q.life = 0;
+    q.size = rnd(2, 5); q.grow = rnd(6, 14);
+    q.drag = 1.1; q.grav = -1.5;               // 轻微上浮
+    q.r = 205; q.g = 205; q.b = 212; q.a = 0.30;
+    q.rot = 0; q.vr = 0;
+  }
+  /* 近地扬尘（发射/着陆吹起的地面尘土） */
+  if (v.y < 45 && Math.abs(v.x) < 2600){
+    let nd = Math.min(5, ((6 + 20 * thr) * dtS + Math.random()) | 0);
+    for (; nd > 0; nd--){
+      const q = pSpawn();
+      q.type = 'dust';
+      const side = Math.random() < 0.5 ? -1 : 1;
+      q.x = v.x + side * rnd(3, 10); q.y = rnd(0, 4);
+      q.vx = side * rnd(15, 80) * (0.5 + thr) + v.vx * 0.1;
+      q.vy = rnd(2, 14);
+      q.ttl = rnd(0.8, 2.0); q.life = 0;
+      q.size = rnd(2, 6); q.grow = rnd(4, 12);
+      q.drag = 1.6; q.grav = -0.5;
+      q.r = 150; q.g = 138; q.b = 112; q.a = 0.22;
+      q.rot = 0; q.vr = 0;
+    }
+  }
+}
+
+/* 再入等离子火花 */
+function spawnPlasmaSparks(v, L, dtS){
+  const h = v.heat;
+  let n = Math.min(9, (h * 130 * dtS + Math.random()) | 0);
+  if (n <= 0) return;
+  vehCenter(v, L);
+  const sp = Math.hypot(v.vx, v.vy) || 1;
+  const nx = v.vx / sp, ny = v.vy / sp;
+  for (; n > 0; n--){
+    const q = pSpawn();
+    q.type = 'spark';
+    q.x = cX_ + nx * rnd(2, 9);
+    q.y = cY_ + ny * rnd(2, 9);
+    q.vx = v.vx * 0.45 - nx * sp * rnd(0.15, 0.4) + rnd(-40, 40);
+    q.vy = v.vy * 0.45 - ny * sp * rnd(0.15, 0.4) + rnd(-40, 40);
+    q.ttl = rnd(0.25, 0.8); q.life = 0;
+    q.size = 0; q.grow = 0;
+    q.drag = 1.5; q.grav = 0;
+    q.r = 255; q.g = (150 + Math.random() * 90) | 0; q.b = (60 + Math.random() * 90) | 0;
+    q.a = 1; q.rot = 0; q.vr = 0;
+  }
+}
+
+/* 爆炸：碎片 + 火球 + 烟 + 冲击波 + 震屏 */
+function explode(x, y, vx, vy){
+  const n = 80 + ((Math.random() * 70) | 0);   // 80~150 个碎片
+  for (let i = 0; i < n; i++){
+    const q = pSpawn();
+    q.type = 'debris';
+    const ang = rnd(0, 6.283), sp = rnd(20, 240);
+    q.x = x + rnd(-4, 4); q.y = y + rnd(-4, 4);
+    q.vx = vx * 0.35 + Math.cos(ang) * sp;
+    q.vy = vy * 0.35 + Math.sin(ang) * sp * 0.8 + rnd(0, 60);
+    q.ttl = rnd(1.0, 2.6); q.life = 0;
+    q.size = rnd(0.6, 3.2); q.grow = 0;
+    q.drag = 0.6; q.grav = 30;
+    q.rot = rnd(0, 6.283); q.vr = rnd(-8, 8);
+    const c = Math.random();
+    if (c < 0.30){ q.r = 255; q.g = 150; q.b = 50; }        // 橙
+    else if (c < 0.50){ q.r = 255; q.g = 230; q.b = 180; }  // 亮白
+    else if (c < 0.75){ q.r = 165; q.g = 165; q.b = 168; }  // 灰
+    else { q.r = 95; q.g = 95; q.b = 98; }                  // 深灰
+    q.a = 1;
+  }
+  for (let i = 0; i < 26; i++){                              // 火球
+    const q = pSpawn();
+    q.type = 'fire';
+    const ang = rnd(0, 6.283), sp = rnd(5, 60);
+    q.x = x + rnd(-6, 6); q.y = y + rnd(-6, 6);
+    q.vx = vx * 0.2 + Math.cos(ang) * sp;
+    q.vy = vy * 0.2 + Math.sin(ang) * sp * 0.7 + rnd(0, 30);
+    q.ttl = rnd(0.4, 1.1); q.life = 0;
+    q.size = rnd(4, 12); q.grow = rnd(10, 26);
+    q.drag = 1.2; q.grav = -4;
+    if (Math.random() < 0.5){ q.r = 255; q.g = 150; q.b = 60; }
+    else { q.r = 255; q.g = 95; q.b = 40; }
+    q.a = 1; q.rot = 0; q.vr = 0;
+  }
+  for (let i = 0; i < 20; i++){                              // 浓烟
+    const q = pSpawn();
+    q.type = 'smoke';
+    q.x = x + rnd(-8, 8); q.y = y + rnd(-8, 8);
+    q.vx = rnd(-30, 30); q.vy = rnd(5, 45);
+    q.ttl = rnd(1.5, 3.2); q.life = 0;
+    q.size = rnd(6, 16); q.grow = rnd(10, 20);
+    q.drag = 0.9; q.grav = -2;
+    q.r = 90; q.g = 88; q.b = 88; q.a = 0.38;
+    q.rot = 0; q.vr = 0;
+  }
+  for (let i = 0; i < waves.length; i++){                    // 冲击波环
+    const w = waves[i];
+    if (!w.on){
+      w.on = true; w.x = x; w.y = y; w.t = 0; w.ttl = 0.9;
+      break;
+    }
+  }
+  shake = Math.min(1.7, shake + 1.35);
+  flash = Math.max(flash, 0.75);
+}
+
+/* 捕获瞬间：机械臂火花 + 白闪 */
+function captureFx(x, y){
+  for (let i = 0; i < 54; i++){
+    const q = pSpawn();
+    q.type = 'spark';
+    const ang = rnd(0, 6.283), sp = rnd(30, 180);
+    q.x = x + rnd(-5, 5); q.y = y + rnd(-3, 3);
+    q.vx = Math.cos(ang) * sp;
+    q.vy = Math.abs(Math.sin(ang)) * sp * 0.8 + rnd(0, 30);  // 向上崩溅
+    q.ttl = rnd(0.3, 0.9); q.life = 0;
+    q.size = 0; q.grow = 0;
+    q.drag = 1.2; q.grav = 60;                               // 受重力下落
+    q.r = 255; q.g = (200 + Math.random() * 55) | 0; q.b = (140 + Math.random() * 90) | 0;
+    q.a = 1; q.rot = 0; q.vr = 0;
+  }
+  flash = Math.max(flash, 0.55);
+  shake = Math.min(1.0, shake + 0.35);
+}
+
+/* ============================================================
+   载具绘制（局部坐标系：中心为原点，机鼻在 -L/2·u，基部在 +L/2·u）
+   ============================================================ */
+
+/* 超重型助推器：71m × 9m 不锈钢深灰 */
+function drawBoosterBody(u, ft){
+  const hw = 4.5 * u, top = -35.5 * u, bot = 35.5 * u;
+  /* 筒体：横向渐变塑造圆柱立体感 */
+  const g = ctx.createLinearGradient(-hw, 0, hw, 0);
+  g.addColorStop(0.00, '#43474e');
+  g.addColorStop(0.22, '#7d838c');
+  g.addColorStop(0.42, '#b7bdc6');   // 高光带
+  g.addColorStop(0.60, '#80868f');
+  g.addColorStop(1.00, '#31353c');
+  rr(-hw, top, hw * 2, bot - top, 1.4 * u);
+  ctx.fillStyle = g; ctx.fill();
+  /* 环缝 */
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = Math.max(0.6, 0.12 * u);
+  ctx.beginPath();
+  for (let yy = top + 6 * u; yy < bot - 3 * u; yy += 9 * u){
+    ctx.moveTo(-hw, yy); ctx.lineTo(hw, yy);
+  }
+  ctx.stroke();
+  /* 引擎段 */
+  ctx.fillStyle = '#22252b';
+  rr(-hw, bot - 4.5 * u, hw * 2, 4.5 * u, 0.8 * u);
+  ctx.fill();
+  /* 引擎喷口(2D侧视可见3台) */
+  ctx.fillStyle = '#0d0f12';
+  ctx.strokeStyle = '#3c414a';
+  ctx.lineWidth = Math.max(0.5, 0.1 * u);
+  for (let i = -1; i <= 1; i++){
+    const ex = i * 2.1 * u, ey = bot - (i === 0 ? 1.2 : 1.6) * u;
+    ctx.beginPath(); ctx.arc(ex, ey, 1.05 * u, 0, 6.283);
+    ctx.fill(); ctx.stroke();
+  }
+  /* 顶部栅格舵（两侧展开动画） */
+  if (ft > 0.01){
+    const e = 3.6 * u * ft, fy = top + 5 * u, fh = 4.6 * u;
+    ctx.fillStyle = '#2a2e34';
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    rr(-hw - e, fy, e + 0.5 * u, fh, 0.4 * u); ctx.fill();
+    rr(hw - 0.5 * u, fy, e + 0.5 * u, fh, 0.4 * u); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-hw - e * 0.5, fy); ctx.lineTo(-hw - e * 0.5, fy + fh);
+    ctx.moveTo(hw + e * 0.5, fy);  ctx.lineTo(hw + e * 0.5, fy + fh);
+    ctx.stroke();
+  }
+  /* 高光竖线 */
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  ctx.fillRect(-hw * 0.45, top + 2 * u, Math.max(0.8, 0.9 * u), bot - top - 4 * u);
+}
+
+/* 星舰：52m × 9m 银白 + 黑鼻锥 + 襟翼 */
+function drawShipFlap(u, ft, front, near){
+  /* front: 前(靠鼻)襟翼 / 后(靠尾)襟翼；near: 近侧(亮) / 远侧(暗) */
+  const hw = 4.5 * u;
+  const x0 = near ? hw * 0.98 : -hw * 0.98;
+  const dir = near ? 1 : -1;
+  ctx.fillStyle = near ? '#c3c9d0' : '#7d838b';
+  if (front){
+    ctx.beginPath();
+    ctx.moveTo(x0, -15 * u);
+    ctx.lineTo(x0 + dir * 5.5 * u * ft, -2 * u);
+    ctx.lineTo(x0, -7 * u);
+    ctx.closePath(); ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x0, 18 * u);
+    ctx.lineTo(x0 + dir * 6.5 * u * ft, 30 * u);
+    ctx.lineTo(x0, 26.5 * u);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+function drawShipBody(u, fpt){
+  const hw = 4.5 * u, top = -26 * u, bot = 26 * u;
+  /* 远侧襟翼（画在机身后） */
+  if (fpt > 0.01){
+    drawShipFlap(u, fpt, false, false);
+    drawShipFlap(u, fpt, true, false);
+  }
+  /* 筒体 */
+  const g = ctx.createLinearGradient(-hw, 0, hw, 0);
+  g.addColorStop(0.00, '#9aa0a7');
+  g.addColorStop(0.25, '#f3f6f9');   // 高光
+  g.addColorStop(0.50, '#e2e7ec');
+  g.addColorStop(0.75, '#a8aeb5');
+  g.addColorStop(1.00, '#787e86');
+  rr(-hw, top + 8 * u, hw * 2, bot - top - 8 * u, 1.2 * u);
+  ctx.fillStyle = g; ctx.fill();
+  /* 腹部隔热瓦暗带（右半侧） */
+  ctx.fillStyle = 'rgba(30,40,55,0.18)';
+  ctx.fillRect(hw * 0.15, top + 9 * u, hw * 0.85, bot - top - 9 * u);
+  /* 黑鼻锥 */
+  const ng = ctx.createLinearGradient(0, top, 0, top + 9 * u);
+  ng.addColorStop(0, '#08090b');
+  ng.addColorStop(1, '#2a2d33');
+  ctx.beginPath();
+  ctx.moveTo(-hw, top + 9 * u);
+  ctx.quadraticCurveTo(-hw * 0.92, top + 1.5 * u, 0, top);
+  ctx.quadraticCurveTo(hw * 0.92, top + 1.5 * u, hw, top + 9 * u);
+  ctx.closePath();
+  ctx.fillStyle = ng; ctx.fill();
+  /* 近侧襟翼（画在机身上） */
+  if (fpt > 0.01){
+    drawShipFlap(u, fpt, false, true);
+    drawShipFlap(u, fpt, true, true);
+  }
+  /* 引擎喷口 */
+  ctx.fillStyle = '#0d0f12';
+  for (let i = -1; i <= 1; i++){
+    ctx.beginPath();
+    ctx.arc(i * 1.9 * u, bot - 1.1 * u, 0.85 * u, 0, 6.283);
+    ctx.fill();
+  }
+}
+
+/* 整体组合：助推器在下(0~71m)，ship 在上(71~123m)，级间环 */
+function drawStack(u, ft, fpt){
+  ctx.save(); ctx.translate(0, 26 * u);      // 助推器中心在整体中心下方26m
+  drawBoosterBody(u, ft);
+  ctx.restore();
+  ctx.save(); ctx.translate(0, -35.5 * u);   // ship 中心在整体中心上方35.5m
+  drawShipBody(u, fpt);
+  ctx.restore();
+  /* 级间深色环（71m处，即整体中心上方9.5m） */
+  ctx.fillStyle = '#17191d';
+  ctx.fillRect(-4.62 * u, -11.2 * u, 9.24 * u, 2.8 * u);
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  ctx.fillRect(-4.62 * u, -11.2 * u, 9.24 * u, Math.max(0.6, 0.5 * u));
+}
+
+/* ---------------- 尾焰 ---------------- */
+function drawFlame(v, L, u){
+  const thr = v.throttle || 0;
+  if (!(v.engines && thr > 0.02)) return;
+  const rhoN = Math.exp(-Math.max(0, v.y) / 8500);
+  const jit = 0.88 + Math.random() * 0.28;
+  const len = (40 + 80 * thr) * (1 + 1.1 * (1 - rhoN)) * jit * u;  // 低气压更细长
+  const wB = 3.8 * u * (0.5 + 0.5 * thr) * (0.45 + 0.55 * rhoN);
+  const y0 = L / 2 * u;
+  const vm = clamp(1 - rhoN / 0.30, 0, 1);   // 真空混合度：稠密橙焰 → 真空蓝紫
+  const r1 = mix(255, 175, vm), g1 = mix(155, 150, vm), b1 = mix(70, 255, vm);
+  const r2 = mix(255, 215, vm), g2 = mix(235, 220, vm), b2 = mix(225, 255, vm);
+
+  ctx.globalCompositeOperation = 'lighter';
+  /* 外层大光晕 */
+  let g = ctx.createRadialGradient(0, y0 + len * 0.3, 0, 0, y0 + len * 0.3, len * 0.8);
+  g.addColorStop(0, 'rgba(' + (r1 | 0) + ',' + (g1 | 0) + ',' + (b1 | 0) + ',' + (0.28 - 0.10 * vm).toFixed(3) + ')');
+  g.addColorStop(1, 'rgba(' + (r1 | 0) + ',' + (g1 | 0) + ',' + (b1 | 0) + ',0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, y0 + len * 0.3, len * 0.8, 0, 6.283); ctx.fill();
+  /* 主锥 */
+  g = ctx.createLinearGradient(0, y0, 0, y0 + len);
+  g.addColorStop(0.00, 'rgba(' + (r2 | 0) + ',' + (g2 | 0) + ',' + (b2 | 0) + ',0.90)');
+  g.addColorStop(0.30, 'rgba(' + (r1 | 0) + ',' + (g1 | 0) + ',' + (b1 | 0) + ',0.55)');
+  g.addColorStop(0.65, 'rgba(' + (r1 | 0) + ',' + (g1 | 0) + ',' + (b1 | 0) + ',0.22)');
+  g.addColorStop(1.00, 'rgba(' + (r1 | 0) + ',' + (g1 | 0) + ',' + (b1 | 0) + ',0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(-wB, y0);
+  ctx.lineTo(wB, y0);
+  ctx.quadraticCurveTo(wB * 0.55, y0 + len * 0.6, 0, y0 + len);
+  ctx.quadraticCurveTo(-wB * 0.55, y0 + len * 0.6, -wB, y0);
+  ctx.closePath(); ctx.fill();
+  /* 内芯 */
+  g = ctx.createLinearGradient(0, y0, 0, y0 + len * 0.6);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(1, 'rgba(' + (r2 | 0) + ',' + (g2 | 0) + ',' + (b2 | 0) + ',0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(-wB * 0.42, y0);
+  ctx.lineTo(wB * 0.42, y0);
+  ctx.lineTo(0, y0 + len * 0.6);
+  ctx.closePath(); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* ---------------- 再入等离子体 ---------------- */
+function drawPlasma(v, L){
+  const h = v.heat;
+  if (!(h > 0.1)) return;
+  vehCenter(v, L);
+  const scx = sxOf(cX_), scy = syOf(cY_);
+  const sp = Math.hypot(v.vx, v.vy) || 1;
+  const nx = v.vx / sp, ny = v.vy / sp;
+  const ang = Math.atan2(-ny, nx);            // 屏幕坐标速度方向
+  const R = Math.max(24, (12 + 26 * h) * ppm);
+  ctx.globalCompositeOperation = 'lighter';
+  /* 前缘辉光弧（迎风面），橙白核心 → 品红外缘 */
+  const lx = scx + Math.cos(ang) * R * 0.4;
+  const ly = scy + Math.sin(ang) * R * 0.4;
+  ctx.save();
+  ctx.translate(lx, ly); ctx.rotate(ang); ctx.scale(1.5, 0.8);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+  g.addColorStop(0.00, 'rgba(255,246,228,' + (0.75 * h).toFixed(3) + ')');
+  g.addColorStop(0.35, 'rgba(255,' + ((160 - 60 * h) | 0) + ',' + ((70 + 120 * h) | 0) + ',' + (0.50 * h).toFixed(3) + ')');
+  g.addColorStop(1.00, 'rgba(255,60,200,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, R, 0, 6.283); ctx.fill();
+  ctx.restore();
+  /* 速度反方向拖尾 */
+  for (let i = 1; i <= 4; i++){
+    const a = (1 - i / 5) * 0.30 * h;
+    const rr2 = R * (1 - i * 0.18);
+    const tx = scx - Math.cos(ang) * R * 0.55 * i;
+    const ty = scy - Math.sin(ang) * R * 0.55 * i;
+    ctx.fillStyle = 'rgba(255,' + ((120 + 30 * i) | 0) + ',170,' + a.toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(tx, ty, rr2, 0, 6.283); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* ---------------- 近地喷焰对地面冲刷 ---------------- */
+function drawSplash(v){
+  const thr = v.throttle || 0;
+  if (!(v.engines && thr > 0.05) || v.y > 30) return;
+  const rhoN = Math.exp(-Math.max(0, v.y) / 8500);
+  if (rhoN < 0.15 || Math.abs(v.x) > 2600) return;   // 仅陆地区域
+  const gx = sxOf(v.x), gy = syOf(0);
+  const rx = (26 + 50 * thr) * ppm * (0.9 + Math.random() * 0.2);
+  if (rx < 4) return;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.save();
+  ctx.translate(gx, gy); ctx.scale(1, 0.22);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+  g.addColorStop(0, 'rgba(255,220,140,' + (0.40 * rhoN).toFixed(3) + ')');
+  g.addColorStop(1, 'rgba(255,120,40,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, rx, 0, 6.283); ctx.fill();
+  ctx.restore();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* ============================================================
+   场景元素
+   ============================================================ */
+function drawSky(){
+  const altK = Math.max(0, camY) / 1000;
+  const t = Math.pow(clamp(altK / 60, 0, 1), 0.85);   // 0km → 60km+
+  const rt = Math.round(mix(47, 6, t));
+  const gt = Math.round(mix(111, 7, t));
+  const bt = Math.round(mix(184, 15, t));
+  const rb = Math.round(mix(156, 13, t));
+  const gb = Math.round(mix(196, 15, t));
+  const bb = Math.round(mix(228, 27, t));
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, 'rgb(' + rt + ',' + gt + ',' + bt + ')');
+  g.addColorStop(1, 'rgb(' + rb + ',' + gb + ',' + bb + ')');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  /* 星星：30km 以上渐显（屏幕空间 + 轻微视差） */
+  const sa = clamp((altK - 30) / 22, 0, 1);
+  if (sa > 0){
+    ctx.fillStyle = '#dfe8ff';
+    for (let i = 0; i < STARN; i++){
+      const s = stars[i];
+      const px = ((s.x * W + camX * 0.03 * s.z) % W + W) % W;
+      const py = s.y * H * 0.92;
+      const tw = 0.55 + 0.45 * Math.sin(tR * s.tw + s.ph);
+      ctx.globalAlpha = sa * tw * 0.9;
+      ctx.fillRect(px, py, s.s, s.s);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* >80km：微曲行星弧 + 大气辉光带 */
+  const pg = clamp((camY - 70000) / 50000, 0, 1);
+  const pa = clamp((camY - 80000) / 40000, 0, 1);
+  if (pa > 0 || pg > 0){
+    const ay = H * 0.94;
+    const R = Math.max(W * 1.35, 1600);
+    const cx2 = W / 2, cy2 = ay + R;
+    if (pg > 0){
+      ctx.lineWidth = 30;
+      ctx.strokeStyle = 'rgba(90,150,255,' + (0.10 * pg).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(cx2, cy2, R, Math.PI, 0); ctx.stroke();
+      ctx.lineWidth = 14;
+      ctx.strokeStyle = 'rgba(130,190,255,' + (0.20 * pg).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(cx2, cy2, R, Math.PI, 0); ctx.stroke();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = 'rgba(200,230,255,' + (0.38 * pg).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(cx2, cy2, R, Math.PI, 0); ctx.stroke();
+    }
+    if (pa > 0){
+      ctx.beginPath();
+      ctx.arc(cx2, cy2, R, Math.PI, 0);
+      ctx.lineTo(W + 50, H + 50);
+      ctx.lineTo(-50, H + 50);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(6,8,14,' + (0.92 * pa).toFixed(3) + ')';
+      ctx.fill();
+    }
+  }
+}
+
+function drawGround(gY, u){
+  const g = ctx.createLinearGradient(0, gY, 0, gY + 300);
+  g.addColorStop(0, '#2b2f26');
+  g.addColorStop(1, '#12140e');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, gY, W, Math.max(0, H - gY + 2));
+  ctx.fillStyle = 'rgba(190,200,170,0.25)';
+  ctx.fillRect(0, gY, W, Math.max(1, 0.8 * u));
+}
+
+/* 发射台底座 */
+function drawPad(gY, u){
+  ctx.fillStyle = '#3a3e44';
+  ctx.fillRect(sxOf(-60), gY - 10 * u, 120 * u, 10 * u);
+  ctx.fillStyle = '#565c66';
+  ctx.fillRect(sxOf(-60), gY - 10 * u, 120 * u, Math.max(1, 1.2 * u));
+  /* 中央导流槽 */
+  ctx.fillStyle = '#101215';
+  ctx.fillRect(sxOf(-12), gY - 10 * u, 24 * u, 10 * u);
+}
+
+/* 发射塔：x=0 附近，高145m，双柱+横梁+机械臂 */
+function drawTower(gY, u){
+  const h = 145 * u;
+  const x1 = sxOf(-44), x4 = sxOf(-24);
+  /* 双柱 */
+  ctx.fillStyle = '#3a3f47';
+  ctx.fillRect(x1, gY - h, 6 * u, h);
+  ctx.fillRect(sxOf(-30), gY - h, 6 * u, h);
+  /* 柱身高光 */
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  ctx.fillRect(x1, gY - h, Math.max(1, 1.2 * u), h);
+  ctx.fillRect(sxOf(-30), gY - h, Math.max(1, 1.2 * u), h);
+  /* 横梁 */
+  ctx.fillStyle = '#2f343c';
+  for (let yy = 20; yy <= 140; yy += 24){
+    ctx.fillRect(x1, gY - yy * u - 1.8 * u, x4 - x1, Math.max(1.5, 3.6 * u));
+  }
+  /* 顶部设备块 */
+  ctx.fillStyle = '#262a31';
+  ctx.fillRect(sxOf(-46), gY - h - 3 * u, (x4 - x1) + 4 * u, 3 * u);
+
+  /* 机械臂（双臂，默认张开30°，靠近/捕获时合拢至水平） */
+  const openAng = (1 - armT) * 30 * RAD;
+  for (let i = 0; i < 2; i++){
+    const py = i === 0 ? 118 : 106;
+    ctx.save();
+    ctx.translate(sxOf(-24), gY - py * u);
+    ctx.rotate(-openAng);
+    ctx.fillStyle = '#494f58';
+    ctx.fillRect(0, -1.1 * u, 36 * u, Math.max(1.5, 2.2 * u));
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(0, -1.1 * u, 36 * u, Math.max(0.8, 0.6 * u));
+    /* 臂尖夹爪 */
+    ctx.fillStyle = '#5a616b';
+    ctx.fillRect(33 * u, -2.6 * u, Math.max(1.5, 3 * u), Math.max(3, 5.2 * u));
+    ctx.restore();
+  }
+
+  /* 顶部警示红灯（闪烁） */
+  if ((tR % 1.4) < 0.15){
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgba(255,60,50,0.9)';
+    ctx.beginPath();
+    ctx.arc(sxOf(-34), gY - h - 4 * u, Math.max(1.5, 1.2 * u), 0, 6.283);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+/* 海上回收平台（recovery='sea'，x=250km） */
+function drawPlatform(gY, u){
+  const px = sxOf(250000);
+  if (px < -500 || px > W + 500) return;
+  const w = 240 * u, deckY = gY - 25 * u, hullH = 12 * u;
+  /* 支撑腿 */
+  ctx.fillStyle = '#262a30';
+  for (let i = -2; i <= 2; i++){
+    ctx.fillRect(px + i * 52 * u - 2.5 * u, deckY, Math.max(1.5, 5 * u), gY - deckY);
+  }
+  /* 船体 */
+  const g = ctx.createLinearGradient(px, 0, px + w, 0);
+  g.addColorStop(0, '#3c4148');
+  g.addColorStop(0.5, '#565d66');
+  g.addColorStop(1, '#3c4148');
+  ctx.fillStyle = g;
+  ctx.fillRect(px - w / 2, deckY, w, hullH);
+  /* 甲板边条 */
+  ctx.fillStyle = '#6b737d';
+  ctx.fillRect(px - w / 2, deckY, w, Math.max(1, 1.5 * u));
+  /* 两端警示条纹 */
+  ctx.fillStyle = 'rgba(230,190,60,0.8)';
+  ctx.fillRect(px - w / 2, deckY + Math.max(1, 1.5 * u), Math.max(1.5, 8 * u), Math.max(1.5, 2 * u));
+  ctx.fillRect(px + w / 2 - 8 * u, deckY + Math.max(1, 1.5 * u), Math.max(1.5, 8 * u), Math.max(1.5, 2 * u));
+  /* 小字标识 */
+  if (u > 0.045){
+    ctx.fillStyle = 'rgba(220,228,238,0.75)';
+    ctx.font = '8px "Bahnschrift","Segoe UI",Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('OCEAN PLATFORM · LZ-A', px, deckY + hullH * 0.62);
+  }
+  /* 雷达桅杆 + 闪灯 */
+  const mx = px - w / 2 + 18 * u;
+  ctx.fillStyle = '#3a3f47';
+  ctx.fillRect(mx, deckY - 26 * u, Math.max(1, 1.2 * u), 26 * u);
+  if ((tR % 1.1) < 0.12){
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath();
+    ctx.arc(mx, deckY - 26 * u, 1.6, 0, 6.283);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+/* ============================================================
+   主绘制
+   ============================================================ */
+function drawVehicle(v, kind){
+  const L = LEN[kind];
+  vehCenter(v, L);
+  const scx = sxOf(cX_), scy = syOf(cY_);
+  const u = ppm;
+  const margin = 300 * u + 260;
+  if (scx < -margin || scx > W + margin || scy < -margin || scy > H + margin) return;
+  const p = (v.pitch || 0) * RAD;
+  ctx.save();
+  ctx.translate(scx, scy);
+  ctx.rotate(p);
+  drawFlame(v, L, u);                    // 先焰后身，机身盖住焰根
+  if (kind === 'stack') drawStack(u, finT.stack, flapT.stack);
+  else if (kind === 'booster') drawBoosterBody(u, finT.booster);
+  else drawShipBody(u, flapT.ship);
+  ctx.restore();
+  drawPlasma(v, L);
+  drawSplash(v);
+}
+
+RENDER.draw = function (state, dtReal){
+  if (!ctx) return;
+  dtReal = dtReal || 0.016;
+  tR += dtReal;
+  const st = state || {};
+  const vs = st.vehicles || {};
+
+  /* ---- dtSim 估计（粒子/发射速率随仿真时间） ---- */
+  let dtS = st.simTime - lastSim;
+  if (!(dtS > 0) || dtS > 1) dtS = 0;
+  if (st.simTime < lastSim - 1){         // 检测到重开：清空全部特效
+    pN = 0;
+    for (let i = 0; i < waves.length; i++) waves[i].on = false;
+    shake = 0; flash = 0;
+    prevCrash.stack = prevCrash.booster = prevCrash.ship = false;
+    seenAlive.stack = seenAlive.booster = seenAlive.ship = false;
+    prevCaught = false;
+    camInit = false;
+  }
+  lastSim = st.simTime;
+
+  /* ---- 相机平滑跟随 active 载具 ---- */
+  const tgt = vs[st.active] || vs.stack || vs.booster || vs.ship || null;
+  if (tgt){
+    if (!camInit){ camX = tgt.x; camY = tgt.y + CAM_BIAS; camInit = true; }
+    const k = 1 - Math.exp(-dtReal * 4.2);
+    camX += (tgt.x - camX) * k;
+    camY += (tgt.y + CAM_BIAS - camY) * k;
+  }
+  const ppmT = clamp(1.6 * Math.pow(2200 / (camY + 2200), 0.6), 0.02, 1.6);
+  ppm += (ppmT - ppm) * (1 - Math.exp(-dtReal * 3));
+
+  /* ---- 动画状态推进 ---- */
+  const b = vs.booster;
+  let at = 0;
+  if (b && st.recovery === 'tower' &&
+      (b.caught || (b.y < 400 && Math.abs(b.x) < 150))) at = 1;
+  armT += (at - armT) * (1 - Math.exp(-dtReal * 2.6));
+
+  const kA = 1 - Math.exp(-dtReal * 2.2);
+  finT.stack  += (((vs.stack  && vs.stack.fins)  ? 1 : 0) - finT.stack)  * kA;
+  finT.booster+= (((vs.booster&& vs.booster.fins)? 1 : 0) - finT.booster)* kA;
+  finT.ship   += (((vs.ship   && vs.ship.fins)   ? 1 : 0) - finT.ship)   * kA;
+  flapT.stack += (((vs.stack  && vs.stack.flaps) ? 1 : 0) - flapT.stack) * kA;
+  flapT.ship  += (((vs.ship   && vs.ship.flaps)  ? 1 : 0) - flapT.ship)  * kA;
+
+  /* ---- 边沿检测：爆炸 / 捕获 ---- */
+  for (const key of ['stack', 'booster', 'ship']){
+    const v = vs[key];
+    if (!v){ prevCrash[key] = false; seenAlive[key] = false; continue; }
+    if (!v.crashed) seenAlive[key] = true;
+    if (v.crashed && seenAlive[key] && !prevCrash[key]){
+      vehCenter(v, LEN[key]);
+      explode(cX_, cY_, v.vx || 0, v.vy || 0);
+    }
+    prevCrash[key] = !!v.crashed;
+  }
+  if (b){
+    if (b.caught && !prevCaught) captureFx(b.x, b.y + 66);
+    prevCaught = !!b.caught;
+  }
+
+  /* ---- 每帧特效粒子生成 ---- */
+  for (const key of ['stack', 'booster', 'ship']){
+    const v = vs[key];
+    if (!v || v.crashed) continue;
+    if (v.engines && (v.throttle || 0) > 0.05) spawnFlameFx(v, dtS);
+    if ((v.heat || 0) > 0.15) spawnPlasmaSparks(v, LEN[key], dtS);
+  }
+
+  /* ---- 粒子推进（用仿真时间，暂停即冻结） ---- */
+  const dtP = clamp(dtS, 0, 0.08);
+  let i = 0;
+  while (i < pN){
+    const p = pool[i];
+    p.life += dtP;
+    if (p.life >= p.ttl){ pKill(i); continue; }
+    const dr = Math.exp(-p.drag * dtP);
+    p.vx *= dr;
+    p.vy = p.vy * dr - p.grav * dtP;
+    p.x += p.vx * dtP;
+    p.y += p.vy * dtP;
+    p.rot += p.vr * dtP;
+    p.size += p.grow * dtP;
+    i++;
+  }
+  for (let wi = 0; wi < waves.length; wi++){
+    const w = waves[wi];
+    if (w.on){ w.t += dtReal; if (w.t >= w.ttl) w.on = false; }
+  }
+
+  /* ---- 屏幕震动（爆炸强震 + 低空引擎微振） ---- */
+  shake *= Math.exp(-2.8 * dtReal);
+  if (shake < 0.002) shake = 0;
+  let vib = 0;
+  for (const key of ['stack', 'booster', 'ship']){
+    const v = vs[key];
+    if (v && v.engines && (v.throttle || 0) > 0.05){
+      const rhoN = Math.exp(-Math.max(0, v.y) / 8500);
+      vib = Math.max(vib, v.throttle * clamp(rhoN * 3, 0, 1));
+    }
+  }
+  const amp = shake * 20 + vib * 2.2;
+  shX = (Math.random() * 2 - 1) * amp;
+  shY = (Math.random() * 2 - 1) * amp;
+
+  /* ================= 渲染 ================= */
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.translate(shX, shY);
+
+  /* 天空 / 星空 / 行星弧 */
+  drawSky();
+
+  /* 地面与设施 */
+  const gY = syOf(0), u = ppm;
+  if (gY < H + 400){
+    drawGround(gY, u);
+    drawPad(gY, u);
+    drawTower(gY, u);
+    if (st.recovery === 'sea') drawPlatform(gY, u);
+  }
+
+  /* 载具（stack 优先；分离后分别画 booster / ship；跳过 crash 或不存在） */
+  if (vs.stack && !vs.stack.crashed){
+    drawVehicle(vs.stack, 'stack');
+  } else {
+    if (vs.booster && !vs.booster.crashed) drawVehicle(vs.booster, 'booster');
+    if (vs.ship && !vs.ship.crashed) drawVehicle(vs.ship, 'ship');
+  }
+
+  /* 粒子：第一遍普通混合（烟 / 尘 / 碎片） */
+  for (let pi = 0; pi < pN; pi++){
+    const p = pool[pi];
+    const k = 1 - p.life / p.ttl;
+    if (p.type === 'smoke' || p.type === 'dust'){
+      const a = k * k * p.a;
+      if (a < 0.01) continue;
+      const r = Math.max(1, p.size * ppm);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = 'rgb(' + p.r + ',' + p.g + ',' + p.b + ')';
+      ctx.beginPath();
+      ctx.arc(sxOf(p.x), syOf(p.y), r, 0, 6.283);
+      ctx.fill();
+    } else if (p.type === 'debris'){
+      const s = Math.max(1.5, p.size * ppm);
+      ctx.save();
+      ctx.translate(sxOf(p.x), syOf(p.y));
+      ctx.rotate(p.rot);
+      ctx.globalAlpha = Math.min(1, k * 1.8);
+      ctx.fillStyle = 'rgb(' + p.r + ',' + p.g + ',' + p.b + ')';
+      ctx.fillRect(-s / 2, -s * 0.35, s, s * 0.7);
+      ctx.restore();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  /* 粒子：第二遍加算混合（火花 / 火球） */
+  ctx.globalCompositeOperation = 'lighter';
+  for (let pi = 0; pi < pN; pi++){
+    const p = pool[pi];
+    const k = 1 - p.life / p.ttl;
+    if (p.type === 'spark'){
+      const px = sxOf(p.x), py = syOf(p.y);
+      ctx.globalAlpha = k;
+      ctx.strokeStyle = 'rgb(' + p.r + ',' + p.g + ',' + p.b + ')';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px - p.vx * ppm * 0.02, py + p.vy * ppm * 0.02);
+      ctx.stroke();
+    } else if (p.type === 'fire'){
+      ctx.globalAlpha = k * 0.5;
+      ctx.fillStyle = 'rgb(' + p.r + ',' + p.g + ',' + p.b + ')';
+      ctx.beginPath();
+      ctx.arc(sxOf(p.x), syOf(p.y), Math.max(1.5, p.size * ppm), 0, 6.283);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  /* 冲击波环 */
+  for (let wi = 0; wi < waves.length; wi++){
+    const w = waves[wi];
+    if (!w.on) continue;
+    const k = w.t / w.ttl;
+    const r = Math.max(24, 420 * (1 - Math.pow(1 - k, 3)) * ppm);
+    ctx.globalAlpha = (1 - k) * 0.6;
+    ctx.strokeStyle = 'rgba(255,240,220,1)';
+    ctx.lineWidth = 3 + 9 * (1 - k);
+    ctx.beginPath();
+    ctx.arc(sxOf(w.x), syOf(w.y), r, 0, 6.283);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  /* 白闪（爆炸 / 捕获，屏幕空间） */
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (flash > 0){
+    ctx.fillStyle = 'rgba(255,255,255,' + Math.min(1, flash).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+    flash = Math.max(0, flash - dtReal * 2.2);
+  }
+};
+
+window.RENDER = RENDER;
+})();
+
+</script>
+<script>
+/* ============================================================
+   STARSHIP FLIGHT 14 — UI 模块 (dev/ui.js)
+   全局对象 UI：UI.init(cb) / UI.update(state) / UI.showEnd(state)
+   普通脚本，无 import/export；自行创建全部 DOM（canvas 除外）
+   ============================================================ */
+(function () {
+'use strict';
+
+var SVGNS = 'http://www.w3.org/2000/svg';
+
+/* ---------------- 模块内部状态 ---------------- */
+var cb = null;            // 回调 {onStart,onCmd,onInput,onRestart,onMenu}
+var root = null;          // #ui-root
+var $ = {};               // 预建 DOM 引用缓存
+var state = null;         // 最近一次 PHYS.state
+
+var menuVisible = true, endVisible = false, tutVisible = false, briefVisible = false;
+var pendingCfg = null;                          // 教学结束后再启动的配置
+var menuCfg = { mode: 'auto', timeMode: 'compressed', recovery: 0 };
+var pendingParams = (typeof MISSION14 !== 'undefined') ? MISSION14.defaultParams()
+  : { boosterEngines: 33, shipEngines: 6, thrustScale: 1.0, fuelScale: 1.0, sepAlt: 62, recovery: 0 };
+var paramModeSel = 'script';
+
+var drawerOpen = false, drawerPinned = false, drawerTimer = 0;
+
+var eventCount = 0;       // 已消费的 state.events 条数
+var toastCount = 0;       // 已消费的 state.toasts 条数
+var lastLit = null;       // 引擎点阵上次点亮状态
+var lastCkSig = '';       // 清单签名（避免每帧重建）
+var lastGuide = '';
+var lastInput = { pitch: 0, yaw: 0, roll: 0 };  // 上次发送的持续输入
+var keys = {};            // 按住的键 e.code -> bool
+var lastFrame = performance.now();
+var drag = { thr: 0, pitch: 0 };                // 滑条最近被用户拖动的时间戳
+var gaugeSpeed = null, gaugeAlt = null;
+var engDots = [], fuelArc = null, fuelTxt = null, fuelTxtVal = '';
+var audio = null, muted = false;
+
+/* ---------------- 小工具 ---------------- */
+function el(tag, cls, parent, text) {
+  var d = document.createElement(tag);
+  if (cls) d.className = cls;
+  if (text != null) d.textContent = text;
+  if (parent) parent.appendChild(d);
+  return d;
+}
+function sv(tag, attrs, parent) {
+  var n = document.createElementNS(SVGNS, tag);
+  for (var k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function setText(n, s) { if (n && n.__t !== s) { n.__t = s; n.textContent = s; } }
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+function fmtClock(t) {           // 任务时钟：T+MM:SS（超 1 小时含时位）
+  var s = Math.abs(t || 0);
+  var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = Math.floor(s % 60);
+  return (h > 0 ? pad2(h) + ':' : '') + pad2(m) + ':' + pad2(ss);
+}
+function actVeh() {
+  return (state && state.vehicles && state.vehicles[state.active]) || null;
+}
+
+/* ============================================================
+   148px 圆形刻度仪表（SPEED / ALTITUDE）
+   细刻度每 6°，主刻度每 30° 加长；刻度环随 val/max·360 旋转
+   ============================================================ */
+function buildGauge(label, unit, max, fmt) {
+  var wrap = el('div', 'gauge');
+  var svg = sv('svg', { viewBox: '0 0 148 148', width: 148, height: 148 }, wrap);
+  var ring = sv('g', {}, svg);
+  for (var a = 0; a < 360; a += 6) {
+    var major = (a % 30 === 0);
+    var rad = (a - 90) * Math.PI / 180;
+    var r1 = major ? 57 : 62, r2 = 68;
+    sv('line', {
+      x1: 74 + Math.cos(rad) * r1, y1: 74 + Math.sin(rad) * r1,
+      x2: 74 + Math.cos(rad) * r2, y2: 74 + Math.sin(rad) * r2,
+      stroke: major ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.32)',
+      'stroke-width': major ? 1.6 : 1
+    }, ring);
+  }
+  sv('path', { d: 'M74 1 L77.5 7 L70.5 7 Z', fill: '#fff' }, svg); // 顶部固定指示
+  var val = sv('text', { x: 74, y: 82, 'text-anchor': 'middle', fill: '#fff',
+    'font-size': 26, 'font-weight': 600, 'letter-spacing': 1 }, svg);
+  val.textContent = fmt(0);
+  var unitT = sv('text', { x: 74, y: 97, 'text-anchor': 'middle',
+    fill: 'rgba(255,255,255,.6)', 'font-size': 8.5, 'letter-spacing': 2 }, svg);
+  unitT.textContent = unit;
+  var lab = sv('text', { x: 74, y: 131, 'text-anchor': 'middle',
+    fill: 'rgba(255,255,255,.85)', 'font-size': 10.5, 'letter-spacing': 3 }, svg);
+  lab.textContent = label;
+  return {
+    wrap: wrap,
+    set: function (v) {
+      var deg = (clamp(v, 0, max) / max * 360) % 360;
+      ring.setAttribute('transform', 'rotate(' + deg.toFixed(2) + ' 74 74)');
+      setText(val, fmt(v));
+    }
+  };
+}
+
+/* ---------------- 姿态仪：地平线 + 俯仰剪影 + 滚转外环 ---------------- */
+function buildAttitude() {
+  var wrap = el('div', 'gauge att');
+  var svg = sv('svg', { viewBox: '0 0 148 148', width: 148, height: 148 }, wrap);
+  var defs = sv('defs', {}, svg);
+  var cp = sv('clipPath', { id: 'attClip' }, defs);
+  sv('circle', { cx: 74, cy: 74, r: 60 }, cp);
+  // 圆内：上黑 下深蓝灰
+  var inner = sv('g', { 'clip-path': 'url(#attClip)' }, svg);
+  sv('rect', { x: 8, y: 8, width: 132, height: 66, fill: '#05080c' }, inner);
+  sv('rect', { x: 8, y: 74, width: 132, height: 66, fill: '#2c3945' }, inner);
+  sv('line', { x1: 8, y1: 74, x2: 140, y2: 74, stroke: 'rgba(255,255,255,.5)', 'stroke-width': 1 }, inner);
+  // 载具剪影（随 pitch 旋转）
+  var sil = sv('g', {}, inner);
+  sv('path', { d: 'M74 44 L77.5 56 L77.5 94 L70.5 94 L70.5 56 Z', fill: '#e8eef4' }, sil);
+  sv('path', { d: 'M70.5 84 L63.5 97 L70.5 93 Z', fill: '#e8eef4' }, sil);
+  sv('path', { d: 'M77.5 84 L84.5 97 L77.5 93 Z', fill: '#e8eef4' }, sil);
+  // 滚转外环（随 roll 旋转）
+  var roll = sv('g', {}, svg);
+  sv('circle', { cx: 74, cy: 74, r: 68, fill: 'none', stroke: 'rgba(255,255,255,.28)', 'stroke-width': 1 }, roll);
+  for (var a = 0; a < 360; a += 30) {
+    var rad = a * Math.PI / 180;
+    sv('line', {
+      x1: 74 + Math.cos(rad) * 62, y1: 74 + Math.sin(rad) * 62,
+      x2: 74 + Math.cos(rad) * 68, y2: 74 + Math.sin(rad) * 68,
+      stroke: 'rgba(255,255,255,.7)', 'stroke-width': 1.2
+    }, roll);
+  }
+  sv('path', { d: 'M74 3 L77.5 10 L70.5 10 Z', fill: '#fff' }, svg); // 固定顶部指标
+  return { wrap: wrap, sil: sil, roll: roll };
+}
+
+/* ---------------- 引擎仪：33 点阵(3/10/20) + 燃料弧 ---------------- */
+function buildEngine() {
+  var wrap = el('div', 'gauge eng');
+  var svg = sv('svg', { viewBox: '0 0 148 148', width: 148, height: 148 }, wrap);
+  var C = 2 * Math.PI * 66;
+  sv('circle', { cx: 74, cy: 74, r: 66, fill: 'none', stroke: 'rgba(255,255,255,.14)', 'stroke-width': 3 }, svg);
+  fuelArc = sv('circle', { cx: 74, cy: 74, r: 66, fill: 'none', stroke: '#fff', 'stroke-width': 3,
+    'stroke-linecap': 'round', 'stroke-dasharray': '0 ' + C, transform: 'rotate(-90 74 74)' }, svg);
+  engDots = [];
+  var rings = [{ n: 3, r: 17 }, { n: 10, r: 34 }, { n: 20, r: 52 }];
+  for (var i = 0; i < rings.length; i++) {
+    var cfg = rings[i];
+    for (var j = 0; j < cfg.n; j++) {
+      var ang = -Math.PI / 2 + j * 2 * Math.PI / cfg.n;
+      engDots.push(sv('circle', {
+        cx: 74 + Math.cos(ang) * cfg.r, cy: 74 + Math.sin(ang) * cfg.r,
+        r: 4.2, 'class': 'edot'
+      }, svg));
+    }
+  }
+  fuelTxt = sv('text', { x: 74, y: 72, 'text-anchor': 'middle', fill: '#fff',
+    'font-size': 14, 'font-weight': 600, 'letter-spacing': 1 }, svg);
+  fuelTxt.textContent = 'FUEL';
+  var lab = sv('text', { x: 74, y: 86, 'text-anchor': 'middle',
+    fill: 'rgba(255,255,255,.6)', 'font-size': 7.5, 'letter-spacing': 2 }, svg);
+  lab.textContent = 'FUEL';
+  return { wrap: wrap };
+}
+
+/* ============================================================
+   引导文本映射表（覆盖全部阶段 × auto/manual）
+   ============================================================ */
+var PHASE_CN = {
+  COUNTDOWN: '倒计时', LIFTOFF: '升空', PITCH_KICK: '程序转弯', 'MAX-Q': '最大动压',
+  ASCENT: '上升', MECO: '主引擎关机', HOTSTAGE: '热分离',
+  BOOSTBACK: '反推返回', BCOAST: '滑行', BENTRY: '再入点火', BLANDING: '着陆点火', RECOVERED: '已回收',
+  SASCENT: '飞船上升', SECO: '飞船关机', ORBIT: '轨道滑行', DEORBIT: '离轨',
+  REENTRY: '再入', FLIP: '着陆翻转', SLANDING: '着陆点火', LANDED: '已着陆'
+};
+var GUIDE = {
+  auto: {
+    stack: {
+      COUNTDOWN: '自动程序：T-10s 点火，倒计时中…',
+      LIFTOFF: '升空：33 台猛禽全推力，垂直上升',
+      PITCH_KICK: '程序转弯：开始向下游方向俯仰',
+      'MAX-Q': '最大动压：自动节流至 72% 减小载荷',
+      ASCENT: '上升段：沿程序俯仰表继续爬升',
+      MECO: 'MECO：助推器发动机关机',
+      HOTSTAGE: '热分离：级间分离，飞船随即点火'
+    },
+    booster: {
+      BOOSTBACK: '助推器：反推机动返回发射场方向',
+      BCOAST: '助推器：弹道滑行，展开栅格舵',
+      BENTRY: '再入点火：减速至安全速度',
+      BLANDING: '着陆点火：减速下降，瞄准捕获塔',
+      RECOVERED: '助推器已回收 ✓'
+    },
+    ship: {
+      SASCENT: '飞船：继续爬升入轨',
+      SECO: 'SECO：达到入轨速度，引擎关机',
+      ORBIT: '轨道滑行：等待离轨窗口',
+      DEORBIT: '离轨点火：反推约 12s 降低近地点',
+      REENTRY: '再入：保持腹部朝下（俯仰≈90°）抗热',
+      FLIP: '着陆翻转：由腹部朝下翻至尾朝下',
+      SLANDING: '着陆点火：推力闭环垂直降落',
+      LANDED: '飞船已着陆 ✓'
+    }
+  },
+  manual: {
+    stack: {
+      COUNTDOWN: '按 E 点火发射（或拖动抽屉中油门滑条）',
+      LIFTOFF: '保持垂直上升，稍后用 ↑↓ 控制俯仰',
+      PITCH_KICK: '按 ↑（或俯仰滑条）向下游倾斜，跟随程序俯仰',
+      'MAX-Q': '动压过高！建议按 S 收油门至 ~72%',
+      ASCENT: '继续爬升：注意过载 ≤6.5g、动压 ≤45kPa',
+      MECO: '燃料将尽：准备按 X 级间分离',
+      HOTSTAGE: '已分离：按 TAB 切换载具分别控制'
+    },
+    booster: {
+      BOOSTBACK: '按 E 点火反推，把 vx 拉回发射场方向',
+      BCOAST: '按 G 展开栅格舵，微调弹道',
+      BENTRY: '再入点火：按 E 点火减速至 ≤1350 m/s',
+      BLANDING: '着陆点火：控制 vy≈-√y·0.62，姿态保持竖直',
+      RECOVERED: '助推器已回收 ✓'
+    },
+    ship: {
+      SASCENT: '爬升入轨：跟随程序俯仰 65km:25° → 140km:5°',
+      SECO: '速度 ≥7650 m/s 且高度足够后按 E 关机',
+      ORBIT: '轨道滑行中，等待离轨时机',
+      DEORBIT: '按 E 点火反推约 12s，压低近地点',
+      REENTRY: '保持腹部朝下(俯仰90°)控制再入角度，防止热流超限',
+      FLIP: '按 F 翻转并适时按 E 点火着陆',
+      SLANDING: '着陆点火：微调油门使 vy→0，接地 |vy|≤10',
+      LANDED: '飞船已着陆 ✓'
+    }
+  }
+};
+
+/* ---------------- 教学卡片（5 页） ---------------- */
+var TUT = [
+  { t: '欢迎来到 STARSHIP FLIGHT 14',
+    b: '本仿真完整再现星舰第 14 次试飞全流程：超重型助推器点火发射 → 级间热分离 → 助推器返回回收 → 飞船入轨 → 再入大气 → 垂直着陆。自动模式下全程自动驾驶，手动模式下由你掌控当前载具。' },
+  { t: '仪表导览',
+    b: '左下角：SPEED 速度表与 ALTITUDE 高度表，刻度环随数值旋转。中央：T+ 任务时钟与琥珀色事件播报。右下角：姿态仪（载具剪影随俯仰旋转、外环随滚转旋转）与引擎仪（33 台引擎点阵 + 外圈燃料余量弧）。' },
+  { t: '控制与键位',
+    b: 'W/S 油门；↑/↓ 俯仰；←/→ 偏航；Q/E 滚转；E 引擎点火/关机；G 栅格舵；F 着陆翻转；X 级间分离；TAB 切换载具；A 切换模式；P 暂停；H 呼出/收起底部控制面板（也可把鼠标移到屏幕底部边缘）。' },
+  { t: '模式与失败机制',
+    b: '自动演示：全体载具自动驾驶，观赏完整任务。手动驾驶：仅当前载具由你控制，其余保持自动。失败机制：过载 >6.5g、动压 >45kPa、再入热流超限、接地速度或姿态过猛都会导致任务失败——再入段务必保持腹部朝下。' },
+  { t: '时间倍速',
+    b: '压缩时间轴下，滑行/轨道等关键节奏自动加速（如 ORBIT 25×），关键时刻自动回到低速；也可用 1/2/3 键或顶部倍速按钮手动设定 1×/2×/5×。接近实时模式则以真实速度体验全程。祝飞行顺利！' }
+];
+var tutPage = 0;
+
+/* ---------------- 键位表 ---------------- */
+var KEY_ROWS = [
+  ['W/S', '油门'], ['↑/↓', '俯仰'],
+  ['←/→', '偏航'], ['Q/E', '滚转'],
+  ['E', '引擎'], ['G', '栅格舵'],
+  ['F', '着陆翻转'], ['X', '级间分离'],
+  ['TAB', '切换载具'], ['A', '模式'],
+  ['1/2/3', '倍速'], ['P', '暂停'],
+  ['R', '重新飞行'], ['H', '控制面板']
+];
+
+/* ============================================================
+   DOM 构建
+   ============================================================ */
+function buildHud() {
+  $.hud = el('div', '', root); $.hud.id = 'hud';
+  var left = el('div', 'hud-side', $.hud);
+  gaugeSpeed = buildGauge('SPEED', 'KM/H', 30000, function (v) { return String(Math.round(v)); });
+  gaugeAlt = buildGauge('ALTITUDE', 'KM', 200, function (v) { return (Math.max(0, v)).toFixed(1); });
+  left.appendChild(gaugeSpeed.wrap);
+  left.appendChild(gaugeAlt.wrap);
+
+  var center = el('div', 'hud-center', $.hud);
+  var arc = sv('svg', { 'class': 'hud-arc', viewBox: '0 0 540 34', preserveAspectRatio: 'none' }, center);
+  sv('path', { d: 'M2 32 Q270 -14 538 32', fill: 'none', stroke: 'rgba(255,255,255,.8)', 'stroke-width': 1 }, arc);
+  var clockRow = el('div', 'clock-row', center);
+  $.tSign = el('span', 't-sign', clockRow, 'T+');
+  $.clock = el('span', 't-val', clockRow, '00:00');
+  $.flightName = el('div', 'flight-name', center, 'STARSHIP FLIGHT 14');
+  el('div', 'vehicle-sub', center, 'SUPER HEAVY / STARSHIP');
+  $.ticker = el('div', 'ticker', center, '');
+
+  var right = el('div', 'hud-side', $.hud);
+  $.att = buildAttitude(); right.appendChild($.att.wrap);
+  $.eng = buildEngine(); right.appendChild($.eng.wrap);
+}
+
+function buildChips() {
+  $.chips = el('div', '', root); $.chips.id = 'chips';
+  $.chipMode = el('div', 'chip', $.chips, 'AUTO');
+  $.chipMode.addEventListener('click', function () { if (cb) cb.onCmd('mode'); });
+  var seg = el('div', 'chip-seg', $.chips);
+  $.speedChips = {};
+  [1, 2, 5].forEach(function (n) {
+    var c = el('div', 'chip', seg, n + '×');
+    c.addEventListener('click', function () { if (cb) cb.onCmd('speed', n); });
+    $.speedChips[n] = c;
+  });
+  $.chipReal = el('div', 'chip', seg, '真实');
+  $.chipReal.addEventListener('click', function () { if (cb) cb.onCmd('realspeed'); });
+  $.chipPause = el('div', 'chip', $.chips, '暂停');
+  $.chipPause.addEventListener('click', function () { if (cb) cb.onCmd('pause'); });
+  $.chipSound = el('div', 'chip', $.chips, '声音 开');
+  $.chipSound.addEventListener('click', function () { toggleMute(); });
+  $.chipPanel = el('div', 'chip', $.chips, '控制面板');
+  $.chipPanel.addEventListener('click', function () { toggleDrawer(true); });
+}
+
+/* ---- 抽屉控制面板 ---- */
+function buildDrawer() {
+  $.dock = el('div', '', root); $.dock.id = 'dock';
+  $.drawer = el('div', '', $.dock); $.drawer.id = 'drawer';
+  $.hotspot = el('div', '', $.dock); $.hotspot.id = 'hotspot';
+
+  /* 第 0 栏：任务参数（IFT-14 新增） */
+  var c0 = el('div', 'd-col', $.drawer);
+  el('div', 'd-head', c0, '任务参数 PARAMS');
+  $.dpRows = {};
+  if (typeof MISSION14 !== 'undefined') {
+    MISSION14.PARAM_DEFS.forEach(function (def) {
+      $.dpRows[def.key] = mkParamRow(c0, def, true, pendingParams);
+    });
+  }
+  var pmBtns = el('div', 'd-btns', c0);
+  $.dpModeScript = mkBtn(pmBtns, '脚本模式', function () {
+    paramModeSel = 'script';
+    if (cb) cb.onCmd('paramMode', { value: 'script' });
+  });
+  $.dpModeAdaptive = mkBtn(pmBtns, '自适应', function () {
+    paramModeSel = 'adaptive';
+    if (cb) cb.onCmd('paramMode', { value: 'adaptive' });
+  });
+
+  /* 第 1 栏：飞行控制 */
+  var c1 = el('div', 'd-col', $.drawer);
+  el('div', 'd-head', c1, '飞行控制 FLIGHT CTRL');
+  $.slThr = mkSlider(c1, '油门 THR', 0, 100, 1, '%', function (v) {
+    drag.thr = performance.now();
+    if (cb) cb.onCmd('throttle', v / 100);
+  });
+  $.slPitch = mkSlider(c1, '俯仰 PITCH', -180, 180, 1, '°', function (v) {
+    drag.pitch = performance.now();
+    if (cb) cb.onCmd('pitch', v);   // 直接设值（见报告：契约外扩展）
+  });
+  $.slYaw = mkStick(c1, '偏航 YAW', 'yaw');
+  $.slRoll = mkStick(c1, '滚转 ROLL', 'roll');
+  var btns = el('div', 'd-btns', c1);
+  $.btnEng = mkBtn(btns, '引擎点火 (E)', function () { if (cb) cb.onCmd('engines'); });
+  $.btnFins = mkBtn(btns, '栅格舵 (G)', function () { if (cb) cb.onCmd('fins'); });
+  $.btnFlip = mkBtn(btns, '着陆翻转 (F)', function () { if (cb) cb.onCmd('flip'); });
+  $.btnSep = mkBtn(btns, '级间分离 (X)', function () { if (cb) cb.onCmd('sep'); });
+  $.btnSwitch = mkBtn(btns, '切换载具 (TAB)', function () { if (cb) cb.onCmd('switch'); });
+  $.btnSwitch.classList.add('wide');
+  $.btnAssist = mkBtn(btns, 'RCS 辅助', function () { if (cb) cb.onCmd('assist'); });
+  $.btnAssist.classList.add('wide');
+
+  /* 第 2 栏：引导文本 */
+  var c2 = el('div', 'd-col', $.drawer);
+  el('div', 'd-head', c2, '引导 GUIDANCE');
+  var g = el('div', '', c2); g.id = 'guidance';
+  $.gPhase = el('div', 'g-phase', g, '');
+  $.gText = el('div', 'g-text', g, '—');
+
+  /* 第 3 栏：任务清单 */
+  var c3 = el('div', 'd-col', $.drawer);
+  el('div', 'd-head', c3, '任务清单 CHECKLIST');
+  $.checklist = el('div', '', c3); $.checklist.id = 'checklist';
+  $.ckItems = [];
+
+  /* 第 4 栏：键位表 */
+  var c4 = el('div', 'd-col', $.drawer);
+  el('div', 'd-head', c4, '键位 KEYS');
+  var kg = el('div', 'keys', c4);
+  KEY_ROWS.forEach(function (r) {
+    var cell = el('div', '', kg);
+    var b = el('b', '', cell, r[0]);
+    cell.appendChild(document.createTextNode(r[1]));
+  });
+
+  /* 抽屉开合交互 */
+  $.hotspot.addEventListener('mouseenter', function () { openDrawer(false); });
+  $.drawer.addEventListener('mouseenter', function () { openDrawer(false); });
+  $.hotspot.addEventListener('mouseleave', scheduleDrawerClose);
+  $.drawer.addEventListener('mouseleave', scheduleDrawerClose);
+}
+function mkSlider(parent, label, min, max, step, unit, onInput) {
+  var row = el('div', 'srow', parent);
+  el('label', '', row, label);
+  var inp = el('input', '', row);
+  inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step; inp.value = min;
+  var val = el('span', 'sval', row, '0' + unit);
+  inp.addEventListener('input', function () {
+    var v = +inp.value;
+    setText(val, v + unit);
+    onInput(v);
+  });
+  inp.addEventListener('change', function () { inp.blur(); });
+  row.__inp = inp; row.__val = val; row.__unit = unit;
+  return row;
+}
+function mkStick(parent, label, axis) {   // 偏航/滚转：按住拖动 = 持续输入，松手归零
+  var row = mkSlider(parent, label, -100, 100, 5, '', function () {});
+  row.__inp.addEventListener('input', function () {
+    var v = +row.__inp.value;
+    setText(row.__val, String(v));
+    if (cb) cb.onInput(axis, v / 100);
+  });
+  function release() {
+    row.__inp.value = 0;
+    setText(row.__val, '0');
+    if (cb) cb.onInput(axis, 0);
+    row.__inp.blur();
+  }
+  row.__inp.addEventListener('change', release);
+  row.__inp.addEventListener('pointerup', release);
+  row.__stick = axis;
+  return row;
+}
+function mkBtn(parent, label, onClick) {
+  var b = el('button', 'd-btn', parent, label);
+  b.addEventListener('click', function () { onClick(); b.blur(); });
+  return b;
+}
+
+/* ---- 主菜单 ---- */
+function buildMenu() {
+  $.menu = el('div', 'overlay', root); $.menu.id = 'menu';
+  var box = el('div', 'menu-box', $.menu);
+  var arc = sv('svg', { 'class': 'menu-arc', viewBox: '0 0 520 64' }, box);
+  sv('path', { d: 'M10 58 Q260 -12 510 58', fill: 'none', stroke: 'rgba(255,255,255,.85)', 'stroke-width': 1.5 }, arc);
+  sv('line', { x1: 260, y1: 16, x2: 260, y2: 26, stroke: '#fff', 'stroke-width': 1.5 }, arc);
+  el('div', 'menu-title', box, 'STARSHIP FLIGHT 14');
+  el('div', 'menu-sub', box, '星舰全任务飞行仿真');
+
+  $.optMode = mkSeg(box, '模式 MODE', [
+    { v: 'auto', label: '自动演示' }, { v: 'manual', label: '手动驾驶' }
+  ], menuCfg.mode, function (v) {
+    menuCfg.mode = v;
+    $.optRec.root.style.display = (v === 'manual') ? '' : 'none';
+  });
+  $.optTime = mkSeg(box, '时间 TIME', [
+    { v: 'compressed', label: '压缩时间轴' }, { v: 'real', label: '接近实时' }
+  ], menuCfg.timeMode, function (v) { menuCfg.timeMode = v; });
+  $.optRec = mkSeg(box, '助推器回收 RECOVERY', [
+    { v: 0, label: '溅落美洲湾（真实）' }, { v: 1, label: '发射塔捕获' }
+  ], menuCfg.recovery, function (v) { menuCfg.recovery = v; });
+  $.optRec.root.style.display = 'none';  // 默认自动模式不显示
+
+  var start = el('button', 'btn-start', box, '开 始 任 务');
+  start.addEventListener('click', onStartClick);
+  el('div', 'menu-hint', box, 'ENTER 开始 · 手动模式 W/S 油门 · H 控制面板');
+}
+function mkSeg(parent, label, options, cur, onPick) {
+  var row = el('div', 'opt-group', parent);
+  el('div', 'opt-label', row, label);
+  var obj = { root: row, map: {} };
+  options.forEach(function (o) {
+    var b = el('button', 'seg', row, o.label);
+    if (o.v === cur) b.classList.add('active');
+    b.addEventListener('click', function () {
+      Object.keys(obj.map).forEach(function (k) { obj.map[k].classList.remove('active'); });
+      b.classList.add('active');
+      onPick(o.v);
+    });
+    obj.map[o.v] = b;
+  });
+  return obj;
+}
+function onStartClick() {
+  var cfg = { mode: menuCfg.mode, timeMode: menuCfg.timeMode, recovery: menuCfg.recovery };
+  var seen = false;
+  try { seen = !!localStorage.getItem('starship14_tut_seen'); } catch (e) {}
+  if (seen) { openBriefing(cfg); }
+  else {
+    pendingCfg = cfg; tutPage = 0; tutVisible = true;
+    $.tut.classList.remove('hidden');
+    renderTut();
+  }
+}
+function launch(cfg) {
+  menuVisible = false;
+  briefVisible = false;
+  if ($.briefing) $.briefing.classList.add('hidden');
+  $.menu.classList.add('hidden');
+  initAudio();
+  if (cb) cb.onStart(cfg);
+}
+function finishTut() {
+  tutVisible = false;
+  $.tut.classList.add('hidden');
+  try { localStorage.setItem('starship14_tut_seen', '1'); } catch (e) {}
+  if (pendingCfg) { var c = pendingCfg; pendingCfg = null; openBriefing(c); }
+}
+
+/* ---- IFT-14 任务简报（弹道剖面 + 参数编辑） ---- */
+var PROF_X = [[-30, 12], [0, 42], [140, 96], [421, 152], [491, 186], [1547, 242], [3890, 296], [31938, 376], [34132, 430], [35430, 546]];
+var PROF_Y = [[-17, 0], [0, 0], [58, 14], [140, 65], [142, 65], [187, 88], [300, 62], [421, 2], [491, 90], [900, 130], [1547, 275], [31938, 275], [34132, 100], [35250, 16], [35413, 4], [35430, 0]];
+function profX(t) {
+  if (t <= PROF_X[0][0]) return PROF_X[0][1];
+  for (var i = 1; i < PROF_X.length; i++) {
+    if (t <= PROF_X[i][0]) {
+      var a = PROF_X[i - 1], b = PROF_X[i];
+      return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
+    }
+  }
+  return PROF_X[PROF_X.length - 1][1];
+}
+function profY(alt) { return 238 - clamp(alt, 0, 290) / 290 * 224; }
+function buildProfileSVG(parent) {
+  var svg = sv('svg', { 'class': 'brief-svg', viewBox: '0 0 560 258' }, parent);
+  sv('line', { x1: 10, y1: 240, x2: 550, y2: 240, stroke: 'rgba(255,255,255,.35)', 'stroke-width': 1 }, svg);
+  // 高度网格线
+  [65, 130, 275].forEach(function (km) {
+    sv('line', { x1: 10, y1: profY(km), x2: 550, y2: profY(km), stroke: 'rgba(255,255,255,.09)', 'stroke-width': 1 }, svg);
+    var t = sv('text', { x: 12, y: profY(km) - 3, fill: 'rgba(255,255,255,.3)', 'font-size': 8 }, svg);
+    t.textContent = km + 'km';
+  });
+  // 弹道折线
+  var d = '';
+  PROF_Y.forEach(function (p, i) {
+    d += (i ? 'L' : 'M') + profX(p[0]).toFixed(1) + ' ' + profY(p[1]).toFixed(1) + ' ';
+  });
+  sv('path', { d: d, fill: 'none', stroke: 'rgba(255,255,255,.9)', 'stroke-width': 1.6 }, svg);
+  // 节点
+  if (typeof MISSION14 !== 'undefined') {
+    MISSION14.TIMELINE.forEach(function (nd) {
+      var altP = null;
+      for (var i = 0; i < PROF_Y.length - 1; i++) {
+        if (nd.t >= PROF_Y[i][0] && nd.t <= PROF_Y[i + 1][0]) {
+          var a = PROF_Y[i], b2 = PROF_Y[i + 1];
+          altP = a[1] + (b2[1] - a[1]) * (nd.t - a[0]) / Math.max(1e-9, b2[0] - a[0]);
+          break;
+        }
+      }
+      if (altP === null) altP = 0;
+      var x = profX(nd.t), y = profY(altP);
+      sv('circle', { cx: x, cy: y, r: 3, fill: '#fff' }, svg);
+      var tip = sv('g', {}, svg);
+      tip.style.pointerEvents = 'all';
+      sv('circle', { cx: x, cy: y, r: 12, fill: 'transparent' }, tip);
+      var tt = sv('text', { x: clamp(x, 60, 480), y: clamp(y - 10, 12, 250), 'text-anchor': 'middle',
+        fill: 'rgba(255,255,255,.55)', 'font-size': 8.5, 'letter-spacing': 1, 'pointer-events': 'none' }, svg);
+      tt.textContent = nd.name + ' ' + MISSION14.fmtClock(nd.t);
+      var title = sv('title', {}, tip);
+      title.textContent = nd.name + '（' + MISSION14.fmtClock(nd.t) + '）' + nd.desc;
+    });
+  }
+  // 时间刻度
+  [[0, 'T+0'], [140, '2:20'], [421, '7:01'], [1547, '25:47'], [3890, '1:04'], [31938, '8:52'], [34132, '9:28'], [35430, '9:50']].forEach(function (k) {
+    var x = profX(k[0]);
+    sv('line', { x1: x, y1: 240, x2: x, y2: 245, stroke: 'rgba(255,255,255,.5)', 'stroke-width': 1 }, svg);
+    var t2 = sv('text', { x: x, y: 255, 'text-anchor': 'middle', fill: 'rgba(255,255,255,.45)', 'font-size': 8 }, svg);
+    t2.textContent = k[1];
+  });
+  return svg;
+}
+/* 参数行（简报完整版 / 抽屉紧凑版共用） */
+function mkParamRow(parent, def, compact, store) {
+  var row = el('div', 'prow' + (compact ? ' pcompact' : ''), parent);
+  var lab = el('label', '', row, def.label);
+  if (!compact && def.desc) lab.title = def.desc;
+  var val = el('span', 'pval', row, '');
+  var ref = { row: row, val: val, def: def, inp: null, btns: null };
+  function apply(v) {
+    pendingParams[def.key] = v;
+    if ($.bpRows[def.key]) $.bpRows[def.key].set(v);
+    if ($.dpRows[def.key]) $.dpRows[def.key].set(v);
+  }
+  if (def.type === 'select') {
+    ref.btns = [];
+    def.options.forEach(function (opt, i) {
+      var b = el('button', 'pseg', row, opt);
+      b.addEventListener('click', function () { apply(i); b.blur(); });
+      ref.btns.push(b);
+    });
+  } else {
+    var inp = el('input', '', row);
+    inp.type = 'range'; inp.min = def.min; inp.max = def.max; inp.step = def.step; inp.value = def.def;
+    inp.addEventListener('input', function () { apply(+inp.value); });
+    ref.inp = inp;
+  }
+  ref.set = function (v) {
+    if (ref.btns) {
+      ref.btns.forEach(function (b, i) { b.classList.toggle('active', i === v); });
+      setText(val, def.options[v] || '');
+    } else if (ref.inp) {
+      if (document.activeElement !== ref.inp) ref.inp.value = v;
+      setText(val, (def.step < 1 ? (+v).toFixed(2) : v) + (def.unit || ''));
+    }
+  };
+  ref.set(store[def.key]);
+  return ref;
+}
+function buildBriefing() {
+  $.briefing = el('div', 'overlay hidden', root); $.briefing.id = 'briefing';
+  var card = el('div', 'brief-card', $.briefing);
+  var head = el('div', 'brief-head', card);
+  el('div', 'brief-kicker', head, 'MISSION BRIEFING');
+  el('div', 'brief-title', head, 'IFT-14 任务简报');
+  el('div', 'brief-date', head, '2026-09-28 · STARBASE · 首次入轨 · 26×STARLINK V3 · 全任务 9H50M');
+  var body = el('div', 'brief-body', card);
+  var left = el('div', 'brief-left', body);
+  el('div', 'brief-sec', left, '任务剖面 TRAJECTORY');
+  buildProfileSVG(left);
+  el('div', 'brief-note', left, '悬停节点查看说明 · 真实时间线 9 小时 50 分，智能压缩播放约 10 分钟 · 倍速面板可切换 1× 真实时间');
+  var right = el('div', 'brief-right', body);
+  el('div', 'brief-sec', right, '任务参数 PARAMS');
+  $.bpRows = {};
+  if (typeof MISSION14 !== 'undefined') {
+    MISSION14.PARAM_DEFS.forEach(function (def) {
+      $.bpRows[def.key] = mkParamRow(right, def, false, pendingParams);
+    });
+  }
+  $.briefMode = mkSeg(right, '飞行程序 PROGRAM', [
+    { v: 'script', label: '脚本模式（真实时间线）' }, { v: 'adaptive', label: '自适应模式' }
+  ], paramModeSel, function (v) { paramModeSel = v; });
+  $.briefMode.root.classList.add('brief-mode');
+  var foot = el('div', 'brief-foot', card);
+  el('div', 'brief-hint', foot, '自适应模式下，参数可在飞行中于控制面板（H）内实时调整');
+  var go = el('button', 'btn-start brief-go', foot, '发 射');
+  go.addEventListener('click', briefingLaunch);
+}
+function openBriefing(cfg) {
+  pendingCfg = cfg;
+  briefVisible = true;
+  $.briefing.classList.remove('hidden');
+}
+function briefingLaunch() {
+  var cfg = pendingCfg || { mode: 'auto', timeMode: 'compressed', recovery: 0 };
+  cfg.params = JSON.parse(JSON.stringify(pendingParams));
+  cfg.paramMode = paramModeSel;
+  pendingCfg = null;
+  launch(cfg);
+}
+
+/* ---- 教学弹窗 ---- */
+function buildTut() {
+  $.tut = el('div', 'overlay hidden', root); $.tut.id = 'tut';
+  var card = el('div', 'tut-card', $.tut);
+  var head = el('div', 'tut-head', card);
+  el('span', '', head, '飞行教学 TUTORIAL');
+  $.tutPageNo = el('span', '', head, '1 / 5');
+  $.tutBody = el('div', 'tut-body', card);
+  var foot = el('div', 'tut-foot', card);
+  $.tutSkip = el('button', 'btn-ghost', foot, '跳过');
+  $.tutDots = el('div', 'tut-dots', foot);
+  $.tutDotsEls = [];
+  for (var i = 0; i < TUT.length; i++) $.tutDotsEls.push(el('i', '', $.tutDots));
+  $.tutPrev = el('button', 'btn-ghost', foot, '上一页');
+  $.tutNext = el('button', 'btn-primary', foot, '下一页');
+  $.tutSkip.addEventListener('click', finishTut);
+  $.tutPrev.addEventListener('click', function () { if (tutPage > 0) { tutPage--; renderTut(); } });
+  $.tutNext.addEventListener('click', function () {
+    if (tutPage < TUT.length - 1) { tutPage++; renderTut(); }
+    else finishTut();
+  });
+}
+function renderTut() {
+  var p = TUT[tutPage];
+  $.tutBody.innerHTML = '';
+  el('h3', '', $.tutBody, p.t);
+  el('p', '', $.tutBody, p.b);
+  setText($.tutPageNo, (tutPage + 1) + ' / ' + TUT.length);
+  for (var i = 0; i < $.tutDotsEls.length; i++)
+    $.tutDotsEls[i].classList.toggle('on', i === tutPage);
+  $.tutPrev.disabled = (tutPage === 0);
+  setText($.tutNext, tutPage === TUT.length - 1 ? '开始任务' : '下一页');
+}
+
+/* ---- 结局弹窗 ---- */
+function buildEnd() {
+  $.end = el('div', 'overlay hidden', root); $.end.id = 'end';
+  $.endCard = el('div', 'end-card', $.end);
+  $.endTitle = el('div', 'end-title', $.endCard, '');
+  $.endNote = el('div', 'end-note', $.endCard, '');
+  var stats = el('div', 'end-stats', $.endCard);
+  $.statEls = {};
+  [['time', '任务时长'], ['alt', '最高高度 KM'], ['spd', '最大速度 KM/H'], ['g', '最大过载 G']].forEach(function (d) {
+    var cell = el('div', 'stat', stats);
+    $.statEls[d[0]] = el('b', '', cell, '—');
+    el('span', '', cell, d[1]);
+  });
+  var btns = el('div', 'end-btns', $.endCard);
+  var br = el('button', '', btns, '重新飞行'); br.id = 'btnRestart';
+  var bm = el('button', '', btns, '返回主菜单'); bm.id = 'btnMenu';
+  br.addEventListener('click', function () {
+    endVisible = false; $.end.classList.add('hidden');
+    if (cb) cb.onRestart();
+  });
+  bm.addEventListener('click', function () {
+    endVisible = false; $.end.classList.add('hidden');
+    menuVisible = true; $.menu.classList.remove('hidden');
+    if (cb) cb.onMenu();
+  });
+}
+
+/* ---- 侧边时间线路线图（IFT-14 新增） ---- */
+function railFrac(t) {
+  var K = [[-30, 0], [0, 0.05], [140, 0.13], [421, 0.23], [491, 0.29], [1547, 0.41], [3890, 0.54], [31938, 0.71], [34132, 0.81], [35250, 0.9], [35430, 0.97]];
+  if (t <= K[0][0]) return 0;
+  for (var i = 1; i < K.length; i++) {
+    if (t <= K[i][0]) {
+      var a = K[i - 1], b = K[i];
+      return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
+    }
+  }
+  return 1;
+}
+function buildRail() {
+  $.rail = el('div', '', root); $.rail.id = 'rail';
+  $.railLine = el('div', 'rail-line', $.rail);
+  $.railCursor = el('div', 'rail-cursor', $.rail);
+  $.railNodes = [];
+  if (typeof MISSION14 !== 'undefined') {
+    MISSION14.TIMELINE.forEach(function (nd) {
+      var n = el('div', 'rail-node', $.rail);
+      n.style.top = (railFrac(nd.t) * 100).toFixed(2) + '%';
+      el('i', 'rail-dot', n);
+      el('span', 'rail-lab', n, MISSION14.fmtClock(nd.t) + '  ' + nd.name);
+      el('div', 'rail-tip', n, nd.name + ' · ' + MISSION14.fmtClock(nd.t) + ' — ' + nd.desc);
+      n.addEventListener('mouseenter', function () { n.classList.add('hover'); });
+      n.addEventListener('mouseleave', function () { n.classList.remove('hover'); });
+      $.railNodes.push({ el: n, t: nd.t, id: nd.id });
+    });
+  }
+  $.railToggle = el('div', 'chip', root, '时间线');
+  $.railToggle.id = 'rail-toggle';
+  $.railToggle.addEventListener('click', function () { $.rail.classList.toggle('open'); });
+}
+
+/* ---- Toast 容器 ---- */
+function buildToasts() {
+  $.toasts = el('div', '', root); $.toasts.id = 'toasts';
+}
+function pushToast(text) {
+  if (!text) return;
+  while ($.toasts.children.length >= 4) $.toasts.removeChild($.toasts.firstChild);
+  var t = el('div', 'toast', $.toasts, text);
+  void t.offsetWidth;      // 触发重排后再加类，保证过渡播放
+  t.classList.add('in');
+  setTimeout(function () {
+    t.classList.add('out');
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 500);
+  }, 5000);
+}
+
+/* ============================================================
+   UI.init(cb)
+   ============================================================ */
+function init(cbIn) {
+  cb = cbIn;
+  if (!document.body) {
+    setTimeout(function () { init(cbIn); }, 20);
+    return;
+  }
+  root = el('div', '', document.body); root.id = 'ui-root';
+  root.classList.add('menu-open');
+  buildHud();
+  buildChips();
+  buildDrawer();
+  buildRail();
+  buildMenu();
+  buildBriefing();
+  buildTut();
+  buildEnd();
+  buildToasts();
+  bindKeyboard();
+}
+
+/* ============================================================
+   抽屉开合
+   ============================================================ */
+function openDrawer(pin) {
+  clearTimeout(drawerTimer);
+  drawerOpen = true;
+  if (pin) drawerPinned = true;
+  $.drawer.classList.add('open');
+}
+function closeDrawer() {
+  clearTimeout(drawerTimer);
+  drawerOpen = false; drawerPinned = false;
+  $.drawer.classList.remove('open');
+}
+function scheduleDrawerClose() {
+  if (drawerPinned) return;
+  clearTimeout(drawerTimer);
+  drawerTimer = setTimeout(closeDrawer, 1500);
+}
+function toggleDrawer(pin) {
+  if (drawerOpen) closeDrawer();
+  else openDrawer(pin !== false);
+}
+
+/* ============================================================
+   键盘
+   ============================================================ */
+var PREVENT = { ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1, Space: 1, Tab: 1 };
+function bindKeyboard() {
+  window.addEventListener('keydown', function (e) {
+    if (PREVENT[e.code]) e.preventDefault();
+    if (menuVisible) {                      // 菜单中仅 Enter 开始
+      if (briefVisible) {                   // 简报中 Enter 发射 / Esc 返回
+        if (e.code === 'Enter' && !e.repeat) briefingLaunch();
+        if (e.code === 'Escape') {
+          briefVisible = false;
+          $.briefing.classList.add('hidden');
+        }
+        return;
+      }
+      if (e.code === 'Enter' && !e.repeat && !tutVisible) onStartClick();
+      return;
+    }
+    if (tutVisible) {
+      if (e.code === 'Enter' || e.code === 'Space') {
+        if (tutPage < TUT.length - 1) { tutPage++; renderTut(); } else finishTut();
+      }
+      if (e.code === 'Escape') finishTut();
+      return;
+    }
+    if (endVisible) {                       // 结局弹窗仅 R 重飞
+      if (e.code === 'KeyR' && !e.repeat && cb) cb.onRestart();
+      return;
+    }
+    keys[e.code] = true;
+    if (e.repeat) return;
+    switch (e.code) {
+      case 'KeyE': if (cb) cb.onCmd('engines'); break;   // 点按点火；按住兼作滚转（见报告）
+      case 'KeyG': if (cb) cb.onCmd('fins'); break;
+      case 'KeyF': if (cb) cb.onCmd('flip'); break;
+      case 'KeyX': if (cb) cb.onCmd('sep'); break;
+      case 'Tab': if (cb) cb.onCmd('switch'); break;
+      case 'KeyA': if (cb) cb.onCmd('mode'); break;
+      case 'KeyP': if (cb) cb.onCmd('pause'); break;
+      case 'KeyR': if (cb) cb.onRestart(); break;
+      case 'KeyH': toggleDrawer(true); break;
+      case 'KeyT': if ($.rail) $.rail.classList.toggle('open'); break;
+      case 'Digit1': if (cb) cb.onCmd('speed', 1); break;
+      case 'Digit2': if (cb) cb.onCmd('speed', 2); break;
+      case 'Digit3': if (cb) cb.onCmd('speed', 5); break;
+    }
+  });
+  window.addEventListener('keyup', function (e) { keys[e.code] = false; });
+  window.addEventListener('blur', function () { keys = {}; });
+}
+
+/* 每帧 flush 持续输入（主循环每帧都调 UI.update） */
+function flushInputs() {
+  if (!cb) return;
+  var p = (keys.ArrowUp ? 1 : 0) + (keys.ArrowDown ? -1 : 0);
+  var y = (keys.ArrowRight ? 1 : 0) + (keys.ArrowLeft ? -1 : 0);
+  var r = (keys.KeyE ? 1 : 0) + (keys.KeyQ ? -1 : 0);
+  sendInput('pitch', p);
+  sendInput('yaw', y);
+  sendInput('roll', r);
+  var now = performance.now();
+  var dt = Math.min(0.1, (now - lastFrame) / 1000);
+  lastFrame = now;
+  if ((keys.KeyW || keys.KeyS) && state && !state.paused) {   // W/S 油门连续步进
+    var veh = actVeh();
+    if (veh) {
+      var dir = keys.KeyW ? 1 : -1;
+      var nv = clamp((veh.throttle || 0) + dir * 0.6 * dt, 0, 1);
+      cb.onCmd('throttle', nv);
+    }
+  }
+}
+function sendInput(k, v) {
+  if (lastInput[k] !== v) { lastInput[k] = v; cb.onInput(k, v); }
+}
+
+/* ============================================================
+   音效：WebAudio 噪声 + 低通 = 引擎轰鸣
+   音量 = throttle · min(1, rho/1.2)，rho=1.225·e^(-y/8500)
+   ============================================================ */
+function initAudio() {
+  if (audio) { try { audio.ctx.resume(); } catch (e) {} return; }
+  try {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    var ctx = new Ctx();
+    var len = 2 * ctx.sampleRate;
+    var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    var src = ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    var filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 110; filt.Q.value = 0.7;
+    var g = ctx.createGain(); g.gain.value = 0;
+    src.connect(filt); filt.connect(g); g.connect(ctx.destination);
+    src.start();
+    audio = { ctx: ctx, gain: g, filt: filt };
+  } catch (e) { audio = null; }
+}
+function toggleMute() {
+  muted = !muted;
+  setText($.chipSound, muted ? '声音 关' : '声音 开');
+  $.chipSound.classList.toggle('warn', muted);
+}
+function updateAudio() {
+  if (!audio) return;
+  var vol = 0, freq = 100;
+  if (state && state.running && !state.paused && !state.missionOver && !muted) {
+    var veh = actVeh();
+    if (veh && veh.throttle > 0 && veh.alive !== false) {
+      var rho = 1.225 * Math.exp(-(veh.y || 0) / 8500);
+      vol = veh.throttle * Math.min(1, rho / 1.2);
+      freq = 90 + veh.throttle * 260;
+    }
+  }
+  try {
+    var t = audio.ctx.currentTime;
+    audio.gain.gain.setTargetAtTime(Math.min(0.55, vol * 0.5), t, 0.12);
+    audio.filt.frequency.setTargetAtTime(freq, t, 0.2);
+  } catch (e) {}
+}
+
+/* ============================================================
+   引导文本 / 清单
+   ============================================================ */
+function updateGuidance() {
+  if (!state || !state.running || state.missionOver) {
+    setText($.gPhase, ''); setText($.gText, '—'); lastGuide = '';
+    return;
+  }
+  var phase = state.phases && state.phases[state.active];
+  var mode = state.mode || 'auto';
+  var kind = state.active || 'stack';
+  var txt = (GUIDE[mode] && GUIDE[mode][kind] && GUIDE[mode][kind][phase]) || '任务进行中…';
+  var sig = mode + '|' + kind + '|' + phase;
+  if (sig !== lastGuide) {
+    lastGuide = sig;
+    var cn = PHASE_CN[phase] || phase || '—';
+    setText($.gPhase, (mode === 'manual' ? '手动' : '自动') + ' · ' +
+      String(kind).toUpperCase() + ' · ' + cn + (phase ? ' / ' + phase : ''));
+    setText($.gText, txt);
+  }
+}
+function updateChecklist() {
+  var items = null;
+  try {
+    if (window.PHYS && typeof PHYS.checklist === 'function') items = PHYS.checklist();
+  } catch (e) {}
+  if (!items || !items.length) return;
+  var sig = items.map(function (i) { return (i.done ? '1' : '0') + (i.now ? 'n' : '0'); }).join('');
+  if (sig === lastCkSig) return;
+  lastCkSig = sig;
+  if ($.ckItems.length !== items.length) {   // 首次或数量变化时重建
+    $.checklist.innerHTML = '';
+    $.ckItems = [];
+    for (var i = 0; i < items.length; i++) {
+      var row = el('div', 'ck-item', $.checklist);
+      $.ckItems.push({ row: row, mark: el('span', 'ck-mark', row, ''), name: el('span', '', row, '') });
+    }
+  }
+  for (var j = 0; j < items.length; j++) {
+    var it = items[j], ref = $.ckItems[j];
+    setText(ref.name, it.name);
+    setText(ref.mark, it.done ? '✓' : (it.now ? '▸' : '·'));
+    ref.row.classList.toggle('done', !!it.done);
+    ref.row.classList.toggle('now', !!it.now && !it.done);
+  }
+}
+
+/* ============================================================
+   UI.update(state) — 每帧刷新（预建引用，仅改文本/属性）
+   ============================================================ */
+function update(st) {
+  state = st;
+  if (!root) return;
+  flushInputs();
+
+  /* overlay 状态类 */
+  root.classList.toggle('menu-open', menuVisible);
+  root.classList.toggle('end-open', endVisible);
+
+  var veh = actVeh();
+
+  /* 左侧仪表 */
+  var spd = veh ? Math.hypot(veh.vx || 0, veh.vy || 0) * 3.6 : 0;
+  var alt = veh ? Math.max(0, (veh.y || 0) / 1000) : 0;
+  gaugeSpeed.set(spd);
+  gaugeAlt.set(alt);
+
+  /* 任务时钟 */
+  setText($.tSign, (st.simTime || 0) < 0 ? 'T-' : 'T+');
+  setText($.clock, fmtClock(st.simTime));
+
+  /* 事件 ticker（最新一条，8s 淡出） */
+  var evs = st.events || [];
+  if (evs.length < eventCount) eventCount = 0;   // 重开后重置
+  if (evs.length > eventCount) {
+    var ev = evs[evs.length - 1];
+    setText($.ticker, ev.text || '');
+    $.ticker.classList.remove('anim');
+    void $.ticker.offsetWidth;
+    $.ticker.classList.add('anim');
+    eventCount = evs.length;
+  }
+
+  /* 姿态仪 */
+  if (veh) {
+    $.att.sil.setAttribute('transform', 'rotate(' + (veh.pitch || 0).toFixed(1) + ' 74 74)');
+    $.att.roll.setAttribute('transform', 'rotate(' + (veh.roll || 0).toFixed(1) + ' 74 74)');
+  }
+
+  /* 引擎点阵 + 燃料弧 */
+  var lit = !!(veh && veh.engines && (veh.throttle || 0) > 0.02);
+  if (lit !== lastLit) {
+    lastLit = lit;
+    for (var i = 0; i < engDots.length; i++) engDots[i].classList.toggle('on', lit);
+  }
+  var f = (veh && veh.fuelMax > 0) ? clamp(veh.fuel / veh.fuelMax, 0, 1) : 0;
+  var C = 2 * Math.PI * 66;
+  fuelArc.setAttribute('stroke-dasharray', Math.max(0.001, C * f).toFixed(1) + ' ' + C.toFixed(1));
+  var ft = Math.round(f * 100) + '%';
+  if (ft !== fuelTxtVal) { fuelTxtVal = ft; setText(fuelTxt, ft); }
+
+  /* 顶部 chips */
+  var modeTxt = st.mode === 'manual' ? 'MANUAL' : 'AUTO';
+  setText($.chipMode, modeTxt);
+  $.chipMode.classList.toggle('manual', st.mode === 'manual');
+  $.speedChips[1].classList.toggle('active', st.userSpeed === 1 && !st.realspeed);
+  $.speedChips[2].classList.toggle('active', st.userSpeed === 2 && !st.realspeed);
+  $.speedChips[5].classList.toggle('active', st.userSpeed === 5 && !st.realspeed);
+  $.chipReal.classList.toggle('active', !!st.realspeed);
+  setText($.chipPause, st.paused ? '已暂停' : '暂停');
+  $.chipPause.classList.toggle('warn', !!st.paused);
+
+  /* 侧边时间线路线图 */
+  if ($.rail) {
+    $.railCursor.style.top = (railFrac(st.simTime || 0) * 100).toFixed(2) + '%';
+    var curId = null;
+    for (var rn = 0; rn < $.railNodes.length; rn++) {
+      var nd = $.railNodes[rn];
+      var done = !!(st.timelineDone && st.timelineDone[nd.id]);
+      nd.el.classList.toggle('done', done);
+      if (done) curId = nd.id;
+    }
+    for (var rn2 = 0; rn2 < $.railNodes.length; rn2++) {
+      $.railNodes[rn2].el.classList.toggle('cur', $.railNodes[rn2].id === curId);
+    }
+  }
+
+  /* 抽屉内容 */
+  updateGuidance();
+  updateChecklist();
+  if (drawerOpen) updateDrawer(veh, st);
+
+  /* 系统级 toast（PHYS 推入的重要提示） */
+  var ts = st.toasts || [];
+  if (ts.length < toastCount) toastCount = 0;
+  while (toastCount < ts.length) { pushToast(ts[toastCount].text); toastCount++; }
+
+  updateAudio();
+}
+
+/* 抽屉内控件逐帧同步（不覆盖正在拖动的滑条） */
+function updateDrawer(veh, st) {
+  var now = performance.now();
+  var manual = st.mode === 'manual';
+
+  /* 滑条显示值 */
+  if (now - drag.thr > 300 && veh) {
+    var tv = Math.round((veh.throttle || 0) * 100);
+    $.slThr.__inp.value = tv;
+    setText($.slThr.__val, tv + '%');
+  }
+  if (now - drag.pitch > 300 && veh) {
+    var pv = Math.round(veh.pitch || 0);
+    $.slPitch.__inp.value = pv;
+    setText($.slPitch.__val, pv + '°');
+  }
+  /* 偏航/滚转杆为瞬时控件，不回写 */
+  $.slThr.__inp.disabled = !manual;
+  $.slPitch.__inp.disabled = !manual;
+  $.slYaw.__inp.disabled = !manual;
+  $.slRoll.__inp.disabled = !manual;
+
+  /* 按钮 */
+  setText($.btnEng, veh && veh.engines ? '引擎关机 (E)' : '引擎点火 (E)');
+  $.btnFins.classList.toggle('active', !!(veh && veh.fins));
+  $.btnSep.disabled = !manual || st.active !== 'stack';
+  setText($.btnSwitch, '切换载具 (TAB) 当前:' + String(st.active || '').toUpperCase());
+  setText($.btnAssist, 'RCS 辅助 ' + (st.assist ? '开' : '关'));
+  $.btnAssist.classList.toggle('active', !!st.assist);
+  [$.btnEng, $.btnFins, $.btnFlip, $.btnSwitch].forEach(function (b) { b.disabled = !manual; });
+
+  /* 任务参数行（脚本模式+运行中锁定；自适应实时可调） */
+  var lockParams = (st.paramMode === 'script' && st.running);
+  for (var pk in $.dpRows) {
+    var pr = $.dpRows[pk];
+    var pv = st.params ? st.params[pk] : pendingParams[pk];
+    if (document.activeElement !== pr.inp) pr.set(pv);
+    if (pr.inp) pr.inp.disabled = lockParams;
+    if (pr.btns) pr.btns.forEach(function (b) { b.disabled = lockParams; });
+  }
+  $.dpModeScript.classList.toggle('active', st.paramMode === 'script');
+  $.dpModeAdaptive.classList.toggle('active', st.paramMode === 'adaptive');
+  setText($.dpModeScript, lockParams ? '脚本模式（已锁定）' : '脚本模式');
+}
+
+/* ============================================================
+   UI.showEnd(state) — 结局弹窗
+   ============================================================ */
+function showEnd(st) {
+  if (!root || endVisible) return;
+  state = st;
+  endVisible = true;
+  closeDrawer();
+  var out = st.outcome || 'fail';
+  $.endCard.classList.remove('fail', 'success', 'partial');
+  $.endCard.classList.add(out);
+  if (out === 'fail') {
+    setText($.endTitle, '任务失败');
+    setText($.endNote, st.failReason || '');
+  } else if (out === 'partial') {
+    setText($.endTitle, '部分成功');
+    setText($.endNote, st.endingNote || '部分任务目标未达成');
+  } else {
+    setText($.endTitle, '任务成功');
+    setText($.endNote, st.endingNote || '全部任务目标达成');
+  }
+  setText($.statEls.time, fmtClock(st.simTime));
+  setText($.statEls.alt, (Math.max(0, (st.stats.maxAlt || 0) / 1000)).toFixed(1));
+  setText($.statEls.spd, String(Math.round((st.stats.maxSpeed || 0) * 3.6)));
+  setText($.statEls.g, (st.stats.maxG || 0).toFixed(1));
+  $.end.classList.remove('hidden');
+  root.classList.add('end-open');
+}
+
+/* ---------------- 导出全局 UI ---------------- */
+window.UI = {
+  init: init,
+  update: update,
+  showEnd: showEnd,
+  toast: pushToast          // 附加能力：内部/调试用 toast
+};
+
+})();
+
+</script>
+<script>
+/* ============ 主循环与模块接线（整合者） ============ */
+(function () {
+  'use strict';
+  var canvas = document.getElementById('cv');
+  RENDER.init(canvas);
+
+  /* 预初始化：菜单展示期间仿真保持暂停 */
+  PHYS.init({ mode: 'auto', timeMode: 'compressed', paramMode: 'script' });
+  PHYS.getState().running = false;
+
+  var endShown = false;
+  UI.init({
+    onStart: function (cfg) {
+      PHYS.init(cfg);
+      endShown = false;
+    },
+    onCmd: function (type, v) {
+      if (type === 'param') PHYS.cmd({ type: 'param', key: v.key, value: v.value });
+      else if (type === 'paramMode') PHYS.cmd({ type: 'paramMode', value: v.value });
+      else PHYS.cmd({ type: type, v: v });
+    },
+    onInput: function (k, v) {
+      PHYS.setInput(k, v);
+    },
+    onRestart: function () {
+      PHYS.restart();
+      endShown = false;
+    },
+    onMenu: function () {
+      location.reload();
+    }
+  });
+
+  var last = performance.now();
+  function frame(t) {
+    var dt = Math.min((t - last) / 1000, 0.05);
+    last = t;
+    var S = PHYS.getState();
+    if (S.running && !S.paused && !S.missionOver) {
+      PHYS.step(dt * PHYS.effSpeed());
+    }
+    RENDER.draw(S, dt);
+    UI.update(S);
+    if (S.missionOver && !endShown) {
+      endShown = true;
+      UI.showEnd(S);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
